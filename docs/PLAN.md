@@ -20,7 +20,7 @@ Each city-day is one event with about six contracts: four 2°F brackets plus an 
 | --- | --- |
 | Contract | `KXHIGH<CITY>-<YYMONDD>-B<center>` for brackets, `-T<strike>` for tails. Bracket B74.5 pays if the settled high is 74 or 75 (both ends inclusive). |
 | Tail direction | Read `strike_type` (`greater`, `less`, `between`) and `floor_strike`/`cap_strike` from the API. Never infer it from the ticker. |
-| Settlement | Highest temperature for the named station **according to The Weather Company** (per each market's rules; values at weather.com/kalshi). The rules cite the station's NWS CLI code (e.g. CLIMDW). The NWS Daily Climate Report high is our proxy until the settlement check shows it matches Kalshi's settled values. |
+| Settlement | Highest temperature for the named station **according to The Weather Company** (per each market's rules; values at weather.com/kalshi). The rules cite the station's NWS CLI code (e.g. CLIMDW). The NWS Daily Climate Report high is our proxy: validated 2026-11-04 on 8,900 city-days (99.98% same outcome, 99.9% same value). Miami excluded (2 mismatches of 3°F and 5°F). |
 | Day window | Midnight to midnight local standard time, even during daylight saving time. |
 | Trading hours | Opens about 10:00 AM ET the day before; closes 11:59 PM ET on the weather date. |
 | Cities | 20 US cities. Station traps: NYC = Central Park (KNYC), Chicago = Midway (KMDW), Dallas = DFW, Houston = Hobby. |

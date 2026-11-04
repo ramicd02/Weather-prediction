@@ -129,7 +129,9 @@ class DataLogger:
             )
             return
         scopes = mine.get("scopes") or ["read", "write"]  # omitted scopes = full access
-        if "write" in scopes:
+        # Block both broad "write" and granular scopes such as "write::trade".
+        write_scopes = [s for s in scopes if str(s).split("::", 1)[0] == "write"]
+        if write_scopes:
             msg = (
                 "this API key has WRITE scope. The logger only needs read access. "
                 "Create a read-only key, or set logger.allow_write_scoped_key: true."

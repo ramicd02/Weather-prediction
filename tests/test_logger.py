@@ -113,6 +113,21 @@ def test_write_scoped_key_allowed_only_with_flag():
     asyncio.run(dl.check_key_scope())  # warns, does not raise
 
 
+@pytest.mark.parametrize(
+    "scopes",
+    [("read", "write::trade"), ("read", "write::transfer"), ("write::block_trade_accept",)],
+)
+def test_granular_write_scopes_are_refused(scopes):
+    dl, _, _ = make_logger(scopes=scopes)
+    with pytest.raises(ConfigError):
+        asyncio.run(dl.check_key_scope())
+
+
+def test_granular_read_scopes_pass():
+    dl, _, _ = make_logger(scopes=("read", "read::portfolio_balance", "read::block_trade_accept"))
+    asyncio.run(dl.check_key_scope())
+
+
 def test_read_only_key_passes():
     dl, _, _ = make_logger(scopes=("read",))
     asyncio.run(dl.check_key_scope())

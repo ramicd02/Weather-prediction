@@ -1,0 +1,133 @@
+# Running the data logger
+
+The logger is **read-only**: it records Kalshi KXHIGH order books, trades and settlements, plus NWS observations and Daily Climate Reports, into one SQLite file (`data_store/weatherbot.db`). It never places orders.
+
+It needs to run 24/7. Every hour it's off is order-book history you can't download later.
+
+---
+
+## 1. Create a read-only Kalshi API key (once)
+
+1. Log in at kalshi.com and go to **Account → Profile → API Keys**.
+2. Create a new key with **read** permission only. The logger refuses to start with a write-scoped key.
+3. Download the private key file. Kalshi shows it **once**, so save it right away:
+   - Windows: `C:\Users\<you>\.kalshi\kalshi_read.pem`
+   - Linux / Mac: `~/.kalshi/kalshi_read.pem`
+4. Keep the key file **outside** the repo folder.
+
+## 2. Windows PC
+
+### Install (once)
+
+1. Install **Python 3.11 or newer** from python.org. On the first installer screen, tick **"Add python.exe to PATH"**.
+2. Install **Git** from git-scm.com (default options are fine).
+3. Open **PowerShell** and run:
+   ```powershell
+   cd $HOME\Documents
+   git clone https://github.com/ramicd02/Weather-prediction.git
+   cd Weather-prediction
+   python -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   pip install -e ".[dev]"
+   ```
+   If PowerShell blocks `Activate.ps1`, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once, then try again.
+
+### Configure (once)
+
+1. Copy `.env.example` to `.env`:
+   ```powershell
+   copy .env.example .env
+   notepad .env
+   ```
+   Fill it in and save:
+   ```
+   KALSHI_ENV=prod
+   KALSHI_API_KEY_ID=<key id from Kalshi>
+   KALSHI_PRIVATE_KEY_PATH=C:\Users\<you>\.kalshi\kalshi_read.pem
+   ```
+2. Open `config.yaml` and replace `REPLACE_WITH_YOUR_EMAIL` in `nws.user_agent` with your email. The NWS asks every app to identify itself, and the logger skips weather data until you do.
+
+### Check it works
+
+```powershell
+python -m pytest -q                       # should say "35 passed"
+python -m weatherbot.data.logger          # starts logging; leave the window open
+```
+
+Open a **second** PowerShell window in the same folder and run:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+python -m weatherbot.data.logger status
+```
+
+After about 30 minutes, run `status` again and confirm:
+- `Markets:` shows open markets
+- `Rows:` counts are growing for `book_snapshots`, `trades` and `observations`
+- `Errors/warnings in the last hour` is 0 or close to it
+- Under `Stations:`, every series has a station. Any marked `<- confirm` was matched from the market rules text; check it on the market's Kalshi page, then pin it in `config.yaml` under `stations:`. Any marked `UNKNOWN` needs adding there.
+
+### Keep it running on Windows
+
+1. Set **Settings → System → Power → Sleep** to **Never** while plugged in.
+2. Create `run_logger.bat` in the repo folder:
+   ```bat
+   @echo off
+   cd /d %~dp0
+   if not exist data_store mkdir data_store
+   :loop
+   call .venv\Scripts\python.exe -m weatherbot.data.logger >> data_store\logger.log 2>&1
+   timeout /t 10
+   goto loop
+   ```
+3. Start it automatically: press **Win + R**, type `shell:startup`, and put a shortcut to `run_logger.bat` in that folder. It starts when you log in and restarts after crashes.
+
+Windows updates and power cuts will still cause gaps. A small Linux server (below) is more reliable once real money is involved.
+
+## 3. Linux server or VPS (more reliable)
+
+```bash
+sudo apt update && sudo apt install -y python3 python3-venv git
+git clone https://github.com/ramicd02/Weather-prediction.git ~/Weather-prediction
+cd ~/Weather-prediction
+python3 -m venv .venv && . .venv/bin/activate
+pip install -e ".[dev]"
+cp .env.example .env && nano .env        # fill in as above; key path e.g. /home/<you>/.kalshi/kalshi_read.pem
+chmod 600 .env ~/.kalshi/*.pem
+nano config.yaml                          # set your email in nws.user_agent
+python -m pytest -q
+```
+
+Install it as a service so it starts on boot and restarts on failure:
+
+```bash
+sudo cp deploy/weatherbot-logger.service /etc/systemd/system/
+sudo sed -i "s/REPLACE_USER/$USER/g" /etc/systemd/system/weatherbot-logger.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now weatherbot-logger
+journalctl -u weatherbot-logger -f       # live logs (Ctrl+C to exit)
+python -m weatherbot.data.logger status  # from the repo folder, venv active
+```
+
+## 4. Day-to-day
+
+| Task | Command |
+| --- | --- |
+| Health check | `python -m weatherbot.data.logger status` |
+| Stop (Windows) | Close the window or press Ctrl+C |
+| Stop / start (Linux) | `sudo systemctl stop weatherbot-logger` / `start` |
+| Update code | `git pull`, then restart the logger |
+| Back up data | Copy `data_store/weatherbot.db` while the logger is stopped, or use `sqlite3 data_store/weatherbot.db ".backup backup.db"` while running |
+
+## What gets stored
+
+| Table | Contents |
+| --- | --- |
+| `markets` | Every KXHIGH market seen: strikes, `strike_type`, close time, rules text, settlement station, result |
+| `book_snapshots` | Full YES/NO bid ladders on every snapshot, every best-price change, and at most once a minute otherwise |
+| `trades` | Every public trade: price, size, taker side |
+| `observations` | Latest NWS observation per settlement station every 10 minutes, with the raw METAR |
+| `cli_reports` | Preliminary and final Daily Climate Reports: date, max/min °F, full text |
+| `events` | Warnings and errors (shown by `status`) |
+
+Prices are integers in 1/10,000 of a dollar (`4200` = $0.42) because Kalshi supports sub-penny prices. Sizes are integers in 1/100 of a contract. Times are UTC.

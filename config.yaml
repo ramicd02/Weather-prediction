@@ -1,0 +1,39 @@
+# Weatherbot configuration. Secrets never go here: they come from environment
+# variables (KALSHI_ENV, KALSHI_API_KEY_ID, KALSHI_PRIVATE_KEY_PATH).
+
+logger:
+  db_path: data_store/weatherbot.db
+
+  # Which Kalshi series to log. Every series whose ticker starts with this prefix
+  # is tracked (all KXHIGH cities, so cities can be ranked later).
+  series_prefix: KXHIGH
+
+  discovery_interval_s: 900        # re-scan for new markets every 15 minutes
+  snapshot_interval_s: 60          # save changed books at least once a minute
+  settlement_poll_interval_s: 1800 # check closed markets for results every 30 min
+  obs_interval_s: 600              # NWS latest observation every 10 minutes
+  cli_interval_s: 10800            # CLI reports every 3 hours (catches prelim + final)
+
+  # Client-side cap on Kalshi REST reads (Basic tier allows 20/s; stay well under).
+  kalshi_reads_per_s: 8
+
+  # The logger is read-only. If the API key has write scope, refuse to start
+  # unless this is set to true. Strongly recommended: keep false and use a
+  # read-only key.
+  allow_write_scoped_key: false
+
+nws:
+  # NWS asks every client to identify itself with an app name and contact.
+  # Replace the placeholder with your own contact email before running.
+  user_agent: "weatherbot-logger (contact: REPLACE_WITH_YOUR_EMAIL)"
+
+# Optional: pin a series to its settlement station (ICAO). Overrides the
+# automatic match from each market's rules text. Use it to confirm any station
+# that `status` reports as "inferred".
+stations: {}
+#  KXHIGHNY: KNYC
+#  KXHIGHCHI: KMDW
+
+# Optional: NWS CLI location code per station, when it isn't the ICAO id
+# without its leading K (e.g. KMDW -> MDW).
+cli_codes: {}

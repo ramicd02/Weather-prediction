@@ -3,7 +3,9 @@
 ## What this project is
 A Python bot that prices Kalshi daily-high temperature markets (KXHIGH series) from NOAA forecast data and trades where its fair value beats the order book. The full build plan is in `docs/PLAN.md`. Read it before starting any phase, and don't start work outside the current phase without asking.
 
-Current phase: **Phase 1, Data pipeline.**
+Current phase: **Phase 1, Data pipeline.** The read-only data logger (`weatherbot/data/logger.py`) is done; see `docs/RUNNING.md`. Next task: CLI history + NBM archive backfill.
+
+Note: Kalshi now sends prices as 4-decimal dollar strings (sub-penny pricing) and sizes as fixed-point strings. Store prices as integer e4 (1/10,000 dollar) and sizes as integer e2 (1/100 contract) via `weatherbot/kalshi/prices.py`. The legacy integer-cent fields are deprecated.
 
 ## Hard rules (never break these)
 1. **Never commit secrets.** API key IDs and private key PEM files live outside the repo and load from environment variables (`KALSHI_API_KEY_ID`, `KALSHI_PRIVATE_KEY_PATH`). `.env`, `*.pem` and `*.key` stay in `.gitignore`.

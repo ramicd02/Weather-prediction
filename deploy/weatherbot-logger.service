@@ -1,0 +1,16 @@
+[Unit]
+Description=Weatherbot read-only Kalshi + NWS data logger
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=REPLACE_USER
+WorkingDirectory=/home/REPLACE_USER/Weather-prediction
+ExecStart=/home/REPLACE_USER/Weather-prediction/.venv/bin/python -m weatherbot.data.logger
+Restart=always
+RestartSec=10
+# Secrets are read from the repo's .env file by the logger itself.
+
+[Install]
+WantedBy=multi-user.target

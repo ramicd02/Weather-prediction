@@ -1,5 +1,9 @@
 # Weatherbot configuration. Secrets never go here: they come from environment
 # variables (KALSHI_ENV, KALSHI_API_KEY_ID, KALSHI_PRIVATE_KEY_PATH).
+#
+# Personal settings (your NWS contact email, any local overrides) go in
+# config.local.yaml next to this file. Git ignores it, and any key in it overrides
+# the same key here, so `git pull` never clashes with your edits.
 
 logger:
   db_path: data_store/weatherbot.db
@@ -24,16 +28,81 @@ logger:
 
 nws:
   # NWS asks every client to identify itself with an app name and contact.
-  # Replace the placeholder with your own contact email before running.
+  # Set your own in config.local.yaml:
+  #   nws:
+  #     user_agent: "weatherbot-logger (contact: you@example.com)"
   user_agent: "weatherbot-logger (contact: REPLACE_WITH_YOUR_EMAIL)"
 
-# Optional: pin a series to its settlement station (ICAO). Overrides the
-# automatic match from each market's rules text. Use it to confirm any station
-# that `status` reports as "inferred".
-stations: {}
-#  KXHIGHNY: KNYC
-#  KXHIGHCHI: KMDW
+# Settlement station (ICAO) per series, confirmed against each market's rules text
+# on 2026-11-04. Overrides the automatic match from the rules.
+stations:
+  KXHIGHAUS: KAUS
+  KXHIGHCHI: KMDW
+  KXHIGHDEN: KDEN
+  KXHIGHLAX: KLAX
+  KXHIGHMIA: KMIA
+  KXHIGHNY: KNYC
+  KXHIGHPHIL: KPHL
+  KXHIGHTATL: KATL
+  KXHIGHTBOS: KBOS
+  KXHIGHTDAL: KDFW
+  KXHIGHTDC: KDCA
+  KXHIGHTEWR: KEWR
+  KXHIGHTHOU: KHOU
+  KXHIGHTLV: KLAS
+  KXHIGHTMIN: KMSP
+  KXHIGHTNOLA: KMSY
+  KXHIGHTOKC: KOKC
+  KXHIGHTPHX: KPHX
+  KXHIGHTSAN: KSAN
+  KXHIGHTSATX: KSAT
+  KXHIGHTSDF: KSDF
+  KXHIGHTSEA: KSEA
+  KXHIGHTSFO: KSFO
+  KXHIGHTTN: KTTN
 
 # Optional: NWS CLI location code per station, when it isn't the ICAO id
 # without its leading K (e.g. KMDW -> MDW).
 cli_codes: {}
+
+# --- Phase 2: model, backtest and risk (approved 2026-11-04) -----------------------
+# Every sizing, cap and stop lives here (CLAUDE.md rule 7). Percentages are fractions
+# of bankroll (0.02 = 2%). Probabilities and edges are fractions (0.05 = 5 points).
+
+# Series never traded (still logged). Miami: settlement mismatches, see CLAUDE.md rule 6.
+trading_exclude_series:
+  - KXHIGHMIA
+
+model:
+  settlement_noise: 0.001          # chance the settled high is 1F off the NWS high
+  version_handover_days: 120       # v5.0 fully replaces the old NBM fit after this many days
+  winter_spread_factor: 1.15       # extra widening Dec-Feb until v5.0 has a winter of data
+  winter_months: [12, 1, 2]
+
+backtest:
+  bankroll_usd: 1000               # notional; no real money
+  decision_hour_utc: 16            # one decision a day, the day before the market's date
+  quote_max_age_hours: 3           # older quotes count as no quote
+  price_stress_cents: 1            # every result is rerun with fills this much worse
+  tuning_end: "2026-07-31"         # tune only on days up to here
+  locked_months: ["2026-08", "2026-09", "2026-10"]   # final test, run once
+
+risk:
+  min_edge: 0.05                   # blended probability beats price + fee by 5 points...
+  min_edge_relative: 0.25          # ...and by 25% of the price
+  kelly_fraction: 0.25             # quarter-Kelly
+  max_contracts_per_trade: 50
+  cap_city_day: 0.02               # max cost at risk per city-day
+  cap_region_day: 0.04             # max cost at risk per region per day
+  cap_day: 0.10                    # max cost at risk per day, all cities
+  daily_stop: -0.05                # stop trading for the day after this loss
+  drawdown_halt: -0.15             # halt after this drop from peak
+
+# Cities whose weather moves together share a cap.
+regions:
+  northeast: [KXHIGHNY, KXHIGHTEWR, KXHIGHTTN, KXHIGHPHIL, KXHIGHTBOS, KXHIGHTDC]
+  texas: [KXHIGHAUS, KXHIGHTDAL, KXHIGHTHOU, KXHIGHTSATX]
+  southeast: [KXHIGHTATL, KXHIGHTNOLA, KXHIGHMIA]
+  midwest: [KXHIGHCHI, KXHIGHTMIN, KXHIGHTSDF, KXHIGHTOKC]
+  mountain_desert: [KXHIGHDEN, KXHIGHTLV, KXHIGHTPHX]
+  west_coast: [KXHIGHLAX, KXHIGHTSAN, KXHIGHTSFO, KXHIGHTSEA]

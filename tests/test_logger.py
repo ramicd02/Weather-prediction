@@ -208,3 +208,27 @@ def test_expiration_value_recorded_on_settlement():
     s.upsert_market({"ticker": "T1", "close_time": "2020-01-01T00:00:00Z"}, "KXHIGHCHI", None, None)
     s.record_settlement("T1", "finalized", "yes", 10000, "63")
     assert s.query("SELECT expiration_value v FROM markets")[0]["v"] == "63"
+
+
+def test_local_config_overrides_repo_config(tmp_path):
+    from weatherbot.data.logger import load_config
+
+    (tmp_path / "config.yaml").write_text(
+        "nws:\n  user_agent: placeholder\nstations:\n  KXHIGHCHI: KMDW\nrisk:\n  min_edge: 0.05\n"
+    )
+    assert load_config(tmp_path / "config.yaml")["nws"]["user_agent"] == "placeholder"
+    (tmp_path / "config.local.yaml").write_text("nws:\n  user_agent: mine\n")
+    cfg = load_config(tmp_path / "config.yaml")
+    assert cfg["nws"]["user_agent"] == "mine"
+    assert cfg["stations"] == {"KXHIGHCHI": "KMDW"} and cfg["risk"]["min_edge"] == 0.05
+
+
+def test_repo_config_has_all_risk_limits():
+    from weatherbot.data.logger import load_config
+
+    cfg = load_config("config.yaml")
+    for key in ("min_edge", "kelly_fraction", "cap_city_day", "cap_region_day", "daily_stop"):
+        assert key in cfg["risk"]
+    regions = [s for members in cfg["regions"].values() for s in members]
+    assert len(regions) == len(set(regions)) == 24
+    assert set(regions) == set(cfg["stations"])

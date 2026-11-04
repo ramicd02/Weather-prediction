@@ -3,7 +3,9 @@
 ## What this project is
 A Python bot that prices Kalshi daily-high temperature markets (KXHIGH series) from NOAA forecast data and trades where its fair value beats the order book. The full build plan is in `docs/PLAN.md`. Read it before starting any phase, and don't start work outside the current phase without asking.
 
-Current phase: **Phase 1, Data pipeline.** The read-only data logger (`weatherbot/data/logger.py`) is done and running on real data; see `docs/RUNNING.md`. The settlement check (`weatherbot/data/settlement_check.py`) backfills CLI history and measures how often Kalshi's settled high matches the NWS CLI high. It has been run on real data (see rule 6). The NBM backfill (`weatherbot/data/nbm.py`, NBP text bulletins) is built; its parser still needs checking against a real bulletin (`nbm sample`). NBM v5.0 (from about 2026-04-30) changed the daily max definition, so model each `nbm_version` separately.
+Current phase: **Phase 2, Model and backtest** (approved 2026-11-04). Read `docs/PHASE2.md` before any Phase 2 work: it fixes the Gate A tests, the locked months (Aug–Oct 2026, never used for tuning) and the build order. Phase 1 is done: the logger runs 24/7 on Carlos's PC, the settlement check validated the NWS proxy (rule 6), and the NBM backfill (`weatherbot/data/nbm.py`) holds day-ahead NBM forecasts since Nov 2024. NBM v5.0 (from about 2026-04-30) changed the daily max definition, so model each `nbm_version` separately.
+
+Personal settings (the NWS contact email) live in git-ignored `config.local.yaml`, overlaid on `config.yaml` by `load_config`. Never put personal values in `config.yaml`.
 
 Note: Kalshi now sends prices as 4-decimal dollar strings (sub-penny pricing) and sizes as fixed-point strings. Store prices as integer e4 (1/10,000 dollar) and sizes as integer e2 (1/100 contract) via `weatherbot/kalshi/prices.py`. The legacy integer-cent fields are deprecated.
 
@@ -49,8 +51,9 @@ weatherbot/
   data/       # loggers and fetchers: Kalshi books, NWS obs, CLI, NBM
   model/      # bias correction, bracket probabilities
   trading/    # quote engine, risk manager, order manager (ONLY place orders exist)
-  backtest/
-config.yaml
+  backtest/   # price history, replay engine, reports (read-only)
+config.yaml        # shared settings, station pins, all risk limits
+config.local.yaml  # personal overrides, git-ignored
 tests/
 docs/PLAN.md
 ```

@@ -37,6 +37,7 @@ import httpx
 from weatherbot.kalshi.auth import Signer, load_private_key
 from weatherbot.kalshi.env import load_dotenv, load_env
 from weatherbot.kalshi.rest import KalshiReadClient
+from weatherbot.model.brackets import yes_if
 
 from .logger import DEFAULT_EXCLUDE, load_config, setup_logging
 from .stations import resolve_station
@@ -74,27 +75,6 @@ def parse_expiration_value(value: Any) -> float | None:
         return None
     m = _NUMBER_RE.search(str(value))
     return float(m.group(0)) if m else None
-
-
-def yes_if(
-    strike_type: str | None, floor: float | None, cap: float | None, v: float
-) -> bool | None:
-    """Would a market of this strike pay YES if the settled high were v?
-
-    Uses strike_type, floor_strike and cap_strike from the API (never the ticker).
-    `between` is inclusive on both ends. Returns None for strike types we don't model.
-    """
-    if strike_type == "greater" and floor is not None:
-        return v > floor
-    if strike_type == "greater_or_equal" and floor is not None:
-        return v >= floor
-    if strike_type == "less" and cap is not None:
-        return v < cap
-    if strike_type == "less_or_equal" and cap is not None:
-        return v <= cap
-    if strike_type == "between" and floor is not None and cap is not None:
-        return floor <= v <= cap
-    return None
 
 
 def consistent_values(markets: list[dict[str, Any]]) -> list[int]:

@@ -9,6 +9,8 @@ A Python bot that prices Kalshi daily-high temperature markets (KXHIGH) from NOA
 
 ## Status
 
+**Phase 2 — model and backtest** (see `docs/PHASE2.md`). Phase 1, the data pipeline, is done.
+
 **Phase 1 — data pipeline.** The read-only data logger is built and tested:
 
 ```

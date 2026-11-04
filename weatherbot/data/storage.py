@@ -152,6 +152,30 @@ CREATE TABLE IF NOT EXISTS nbm_forecasts (
 );
 CREATE INDEX IF NOT EXISTS ix_nbm_station_target ON nbm_forecasts(station, target_date);
 
+-- Hourly Kalshi candlesticks for settled markets (backtest prices).
+CREATE TABLE IF NOT EXISTS kalshi_candles (
+    ticker TEXT NOT NULL,
+    end_ts INTEGER NOT NULL,      -- unix seconds, inclusive end of the hour
+    yes_bid_e4 INTEGER,           -- best YES bid at the end of the hour
+    yes_ask_e4 INTEGER,           -- best YES ask at the end of the hour
+    price_e4 INTEGER,             -- last trade price in the hour (NULL: no trade)
+    price_low_e4 INTEGER,
+    price_high_e4 INTEGER,
+    volume_e2 INTEGER,
+    open_interest_e2 INTEGER,
+    PRIMARY KEY (ticker, end_ts)
+);
+
+-- One row per market whose candles were fetched, so the backfill can resume.
+CREATE TABLE IF NOT EXISTS kalshi_candle_fetch (
+    ticker TEXT PRIMARY KEY,
+    status TEXT NOT NULL,         -- 'ok' | 'empty' | 'error'
+    source TEXT,                  -- 'live' | 'historical'
+    candles INTEGER,
+    note TEXT,
+    fetched_at TEXT NOT NULL
+);
+
 -- One row per NBP file attempted, so the backfill can resume.
 CREATE TABLE IF NOT EXISTS nbm_files (
     cycle_time TEXT PRIMARY KEY,
@@ -452,6 +476,34 @@ class Storage:
             "SELECT cycle_time FROM nbm_files WHERE status IN ('ok', 'missing')"
         ).fetchall()
         return {r["cycle_time"] for r in rows}
+
+    # --- Kalshi candles ---------------------------------------------------------------
+
+    def upsert_candles(self, ticker: str, rows: Iterable[dict[str, Any]]) -> int:
+        cols = [
+            "end_ts", "yes_bid_e4", "yes_ask_e4", "price_e4", "price_low_e4",
+            "price_high_e4", "volume_e2", "open_interest_e2",
+        ]  # fmt: skip
+        data = [(ticker, *(r.get(c) for c in cols)) for r in rows]
+        updates = ", ".join(f"{c}=excluded.{c}" for c in cols[1:])
+        self.conn.executemany(
+            f"""INSERT INTO kalshi_candles (ticker, {", ".join(cols)})
+                VALUES ({", ".join("?" * (len(cols) + 1))})
+                ON CONFLICT(ticker, end_ts) DO UPDATE SET {updates}""",
+            data,
+        )
+        return len(data)
+
+    def record_candle_fetch(
+        self, ticker: str, status: str, source: str | None, n: int, note: str = ""
+    ) -> None:
+        self.conn.execute(
+            """INSERT INTO kalshi_candle_fetch (ticker, status, source, candles, note, fetched_at)
+               VALUES (?,?,?,?,?,?)
+               ON CONFLICT(ticker) DO UPDATE SET status=excluded.status, source=excluded.source,
+                 candles=excluded.candles, note=excluded.note, fetched_at=excluded.fetched_at""",
+            (ticker, status, source, n, note[:500], utcnow()),
+        )
 
     # --- events ----------------------------------------------------------------------
 

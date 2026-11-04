@@ -70,9 +70,30 @@ def setup_logging(level: str = "INFO") -> None:
     logging.getLogger("websockets").setLevel(logging.WARNING)
 
 
+def _deep_merge(base: dict[str, Any], over: dict[str, Any]) -> dict[str, Any]:
+    out = dict(base)
+    for k, v in over.items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _deep_merge(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
 def load_config(path: str | Path = "config.yaml") -> dict[str, Any]:
+    """config.yaml, overlaid with config.local.yaml from the same folder if present.
+
+    The local file holds personal settings (e.g. the NWS contact email). It is
+    git-ignored, so updates to config.yaml never clash with it.
+    """
+    path = Path(path)
     with open(path, encoding="utf-8") as fh:
-        return yaml.safe_load(fh) or {}
+        cfg = yaml.safe_load(fh) or {}
+    local = path.with_name(path.stem + ".local" + path.suffix)
+    if local.exists():
+        with open(local, encoding="utf-8") as fh:
+            cfg = _deep_merge(cfg, yaml.safe_load(fh) or {})
+    return cfg
 
 
 # --- the service ---------------------------------------------------------------------

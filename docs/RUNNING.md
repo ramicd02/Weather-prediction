@@ -45,12 +45,17 @@ It needs to run 24/7. Every hour it's off is order-book history you can't downlo
    KALSHI_API_KEY_ID=<key id from Kalshi>
    KALSHI_PRIVATE_KEY_PATH=C:\Users\<you>\.kalshi\kalshi_read.pem
    ```
-2. Open `config.yaml` and replace `REPLACE_WITH_YOUR_EMAIL` in `nws.user_agent` with your email. The NWS asks every app to identify itself, and the logger skips weather data until you do.
+2. Create `config.local.yaml` (`notepad config.local.yaml`) with your contact email, then save:
+   ```yaml
+   nws:
+     user_agent: "weatherbot-logger (contact: you@example.com)"
+   ```
+   The NWS asks every app to identify itself, and the logger skips weather data until you do. Git ignores this file, so updates never clash with it. Don't edit `config.yaml` for personal settings.
 
 ### Check it works
 
 ```powershell
-python -m pytest -q                       # should say "69 passed"
+python -m pytest -q                       # should say "98 passed"
 python -m weatherbot.data.logger          # starts logging; leave the window open
 ```
 
@@ -134,7 +139,16 @@ python -m weatherbot.data.nbm report      # NBM vs NWS high per city, plus old-v
 
 Each forecast is stamped `available_at` = run time + 2 hours, and backtests may only use forecasts available before the trade time. Options: `--start 2026-01-01`, `--end`, `--cycles 1,7,13,19` (more runs, ~4x the download), `--concurrency 4`. Files carry no NBM version, so runs are labelled 4.x, transition (2026-04-30 to 05-04) or 5.0 by date.
 
-## 6. Day-to-day
+## 6. Kalshi price history (Phase 2)
+
+Hourly bid, ask, trade price and volume for every settled weather market, for the backtest. Read-only, resumable, a few hours, safe alongside the logger (it uses about 3/4 of the read rate the logger is allowed).
+
+```
+python -m weatherbot.backtest.prices --limit 20   # quick check first
+python -m weatherbot.backtest.prices              # everything; safe to stop and rerun
+```
+
+## 7. Day-to-day
 
 | Task | Command |
 | --- | --- |

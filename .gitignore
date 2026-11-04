@@ -5,6 +5,7 @@
 *.pem
 *.key
 secrets/
+config.local.yaml
 
 # Data
 *.db

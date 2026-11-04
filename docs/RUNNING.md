@@ -50,7 +50,7 @@ It needs to run 24/7. Every hour it's off is order-book history you can't downlo
 ### Check it works
 
 ```powershell
-python -m pytest -q                       # should say "66 passed"
+python -m pytest -q                       # should say "69 passed"
 python -m weatherbot.data.logger          # starts logging; leave the window open
 ```
 
@@ -128,7 +128,8 @@ Downloads past National Blend of Models forecasts (the NBP text bulletin) for ev
 ```
 python -m weatherbot.data.nbm sample      # first: checks one file and saves data_store/nbm_sample.txt
 python -m weatherbot.data.nbm backfill    # Nov 2024 to yesterday, 13Z run (~32 MB a day); safe to stop and rerun
-python -m weatherbot.data.nbm report      # NBM vs NWS high per city: bias, typical miss, calibration
+python -m weatherbot.data.nbm cli         # NWS highs for every year the forecasts cover
+python -m weatherbot.data.nbm report      # NBM vs NWS high per city, plus old-vs-v5.0 on the same months
 ```
 
 Each forecast is stamped `available_at` = run time + 2 hours, and backtests may only use forecasts available before the trade time. Options: `--start 2026-01-01`, `--end`, `--cycles 1,7,13,19` (more runs, ~4x the download), `--concurrency 4`. Files carry no NBM version, so runs are labelled 4.x, transition (2026-04-30 to 05-04) or 5.0 by date.

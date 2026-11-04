@@ -8,13 +8,17 @@ import httpx
 from weatherbot.data.nbm import (
     accuracy,
     backfill,
+    below_share,
     cycles_between,
+    format_accuracy,
+    inside_share,
     is_max_column,
     max_target_date,
     nbm_version_for,
     nbp_url,
     parse_nbp_block,
     parse_nbp_file,
+    same_season,
     split_bulletins,
 )
 from weatherbot.data.storage import Storage
@@ -173,3 +177,56 @@ def test_accuracy_day_ahead_by_version():
     # Only the next-day forecast (Nov 4, median 62) counts; the Nov 5 row is two days out.
     assert a.n == 1 and a.version == "5.0" and a.bias == 2 and a.mae == 2
     assert a.cover80 == 1.0 and a.below50 == 0.0
+
+
+def test_ties_count_half():
+    assert below_share(62, 62) == 0.5
+    assert below_share(61, 62) == 1.0 and below_share(63, 62) == 0.0
+    assert inside_share(60, 59, 65) == 1.0
+    assert inside_share(59, 59, 65) == 0.5 and inside_share(65, 59, 65) == 0.5
+    assert inside_share(58, 59, 65) == 0.0
+
+
+def _fc(station, cycle_day, p50, version, p10=None, p90=None):
+    d = date.fromisoformat(cycle_day)
+    target = date.fromordinal(d.toordinal() + 1).isoformat()
+    return {
+        "station": station,
+        "cycle_time": f"{cycle_day}T13:00:00Z",
+        "available_at": f"{cycle_day}T15:00:00Z",
+        "valid_time": f"{target}T00:00:00Z",
+        "fhr": 35,
+        "target_date": target,
+        "p10_f": p10 if p10 is not None else p50 - 3,
+        "p50_f": p50,
+        "p90_f": p90 if p90 is not None else p50 + 3,
+        "nbm_version": version,
+    }
+
+
+def test_same_season_compares_matching_months_only():
+    s = Storage(":memory:")
+    s.upsert_nbm_forecasts(
+        [
+            _fc("KPHX", "2025-07-01", 100, "4.3"),  # July, old: miss 4
+            _fc("KPHX", "2025-01-10", 60, "4.3"),  # January, old: excluded (no v5 January)
+            _fc("KPHX", "2026-07-01", 100, "5.0"),  # July, v5: miss 1
+        ]
+    )
+    s.upsert_cli_history(
+        "KPHX",
+        [("2025-07-02", 104, 80, "a"), ("2025-01-11", 90, 40, "b"), ("2026-07-02", 101, 80, "c")],
+    )
+    [c] = same_season(s, ["KPHX"])
+    assert c.months == "Jul-Jul" and c.old.n == 1 and c.old.mae == 4 and c.new.mae == 1
+    text = format_accuracy([c.new], {"KPHX": "KXHIGHTPHX"}, [c])
+    assert "-3.00" in text and "Same-months total (1 stations)" in text
+
+
+def test_same_season_flags_stations_without_old_data():
+    s = Storage(":memory:")
+    s.upsert_nbm_forecasts([_fc("KTTN", "2026-07-01", 90, "5.0")])
+    s.upsert_cli_history("KTTN", [("2026-07-02", 90, 70, "a")])
+    [c] = same_season(s, ["KTTN"])
+    assert c.old is None
+    assert "nbm cli" in format_accuracy([c.new], {}, [c])

@@ -8,6 +8,7 @@ lines hold the daily min at the 12Z columns; we keep only the max columns (~00Z)
     python -m weatherbot.data.nbm sample                 # check the format on one file
     python -m weatherbot.data.nbm backfill               # Nov 2024 -> today, resumable
     python -m weatherbot.data.nbm backfill --start 2026-01-01 --cycles 13
+    python -m weatherbot.data.nbm cli                    # NWS highs for all NBM years
     python -m weatherbot.data.nbm report                 # NBM vs NWS CLI accuracy per city
 
 No look-ahead: each row gets `available_at = cycle_time + lag` (default 120 minutes,
@@ -307,6 +308,20 @@ async def backfill(
 # --- accuracy report ------------------------------------------------------------------
 
 
+def below_share(high: int, q: float) -> float:
+    """How much of an integer high lies below quantile q.
+
+    CLI highs are whole degrees, so treat a reported 62 as anywhere in [61.5, 62.5].
+    A high equal to the median then counts as half below, half above.
+    """
+    return min(max(q - (high - 0.5), 0.0), 1.0)
+
+
+def inside_share(high: int, lo: float, hi: float) -> float:
+    """Share of [high - 0.5, high + 0.5] that falls inside [lo, hi]."""
+    return max(0.0, min(high + 0.5, hi) - max(high - 0.5, lo))
+
+
 @dataclass
 class Accuracy:
     station: str
@@ -314,67 +329,165 @@ class Accuracy:
     n: int
     bias: float  # mean(CLI - p50): positive = NBM too cold
     mae: float  # mean |CLI - p50|
-    cover80: float  # share of CLI highs inside [p10, p90]; ~0.80 if calibrated
-    below50: float  # share of CLI highs below p50; ~0.50 if unbiased
+    cover80: float  # share of CLI highs inside [p10, p90], ties counted fairly; ~80% ideal
+    below50: float  # share of CLI highs below p50, ties counted half; ~50% ideal
+
+
+def score(station: str, version: str, rows: list[Any]) -> Accuracy:
+    err = [r["high_f"] - r["p50_f"] for r in rows]
+    spread = [r for r in rows if r["p10_f"] is not None and r["p90_f"] is not None]
+    return Accuracy(
+        station,
+        version,
+        len(rows),
+        statistics.fmean(err),
+        statistics.fmean(abs(e) for e in err),
+        statistics.fmean(inside_share(r["high_f"], r["p10_f"], r["p90_f"]) for r in spread)
+        if spread
+        else float("nan"),
+        statistics.fmean(below_share(r["high_f"], r["p50_f"]) for r in rows),
+    )
+
+
+def _day_ahead_rows(storage: Storage, station: str, cycle_hour: int) -> list[Any]:
+    return storage.query(
+        """SELECT f.nbm_version v, f.target_date d, f.p10_f, f.p50_f, f.p90_f, c.high_f
+           FROM nbm_forecasts f JOIN cli_history c
+             ON c.station = f.station AND c.climate_date = f.target_date
+           WHERE f.station = ? AND c.high_f IS NOT NULL AND f.p50_f IS NOT NULL
+             AND CAST(substr(f.cycle_time, 12, 2) AS INTEGER) = ?
+             AND f.target_date = date(substr(f.cycle_time, 1, 10), '+1 day')""",
+        (station, cycle_hour),
+    )
 
 
 def accuracy(storage: Storage, stations: list[str], cycle_hour: int = 13) -> list[Accuracy]:
     """Day-ahead skill: the `cycle_hour` run on day D forecasting the max for day D+1."""
     out = []
     for st in stations:
-        rows = storage.query(
-            """SELECT f.nbm_version v, f.p10_f, f.p50_f, f.p90_f, c.high_f
-               FROM nbm_forecasts f JOIN cli_history c
-                 ON c.station = f.station AND c.climate_date = f.target_date
-               WHERE f.station = ? AND c.high_f IS NOT NULL AND f.p50_f IS NOT NULL
-                 AND CAST(substr(f.cycle_time, 12, 2) AS INTEGER) = ?
-                 AND f.target_date = date(substr(f.cycle_time, 1, 10), '+1 day')""",
-            (st, cycle_hour),
-        )
         by_ver: dict[str, list[Any]] = defaultdict(list)
-        for r in rows:
+        for r in _day_ahead_rows(storage, st, cycle_hour):
             by_ver[r["v"] or "?"].append(r)
         for ver, rs in sorted(by_ver.items()):
-            err = [r["high_f"] - r["p50_f"] for r in rs]
-            inside = [
-                r["p10_f"] <= r["high_f"] <= r["p90_f"]
-                for r in rs
-                if r["p10_f"] is not None and r["p90_f"] is not None
-            ]
-            out.append(
-                Accuracy(
-                    st,
-                    ver,
-                    len(rs),
-                    statistics.fmean(err),
-                    statistics.fmean(abs(e) for e in err),
-                    sum(inside) / len(inside) if inside else float("nan"),
-                    sum(r["high_f"] < r["p50_f"] for r in rs) / len(rs),
-                )
-            )
+            out.append(score(st, ver, rs))
     return out
 
 
-def format_accuracy(acc: list[Accuracy], station_series: dict[str, str]) -> str:
+@dataclass
+class SeasonCompare:
+    station: str
+    months: str  # e.g. "May-Nov"
+    old: Accuracy | None  # NBM before v5.0, same calendar months, earlier years
+    new: Accuracy
+
+
+MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+
+def same_season(
+    storage: Storage, stations: list[str], new_version: str = "5.0", cycle_hour: int = 13
+) -> list[SeasonCompare]:
+    """Old NBM vs v5.0 on the same calendar months, so summer isn't compared with winter."""
+    out = []
+    for st in stations:
+        rows = _day_ahead_rows(storage, st, cycle_hour)
+        new = [r for r in rows if r["v"] == new_version]
+        if not new:
+            continue
+        months = {int(r["d"][5:7]) for r in new}
+        first_new = min(r["d"] for r in new)
+        old = [
+            r
+            for r in rows
+            if r["v"] not in (new_version, "transition")
+            and int(r["d"][5:7]) in months
+            and r["d"] < first_new
+        ]
+        label = f"{MONTH_ABBR[min(months) - 1]}-{MONTH_ABBR[max(months) - 1]}"
+        out.append(
+            SeasonCompare(
+                st, label, score(st, "old", old) if old else None, score(st, new_version, new)
+            )
+        )
+    return out
+
+
+def format_accuracy(
+    acc: list[Accuracy], station_series: dict[str, str], seasons: list[SeasonCompare]
+) -> str:
     lines = [
         "NBM day-ahead accuracy (13Z run, next day's high) vs NWS CLI high",
         "",
-        f"{'Station':<8}{'Series':<14}{'NBM':>6}{'Days':>6}{'Bias F':>8}{'MAE F':>7}"
+        f"{'Station':<8}{'Series':<14}{'NBM':>11}{'Days':>6}{'Bias F':>8}{'MAE F':>7}"
         f"{'In 10-90%':>11}{'Below p50':>11}",
     ]
-    latest = max((a.version for a in acc), default="")
+    latest = (
+        "5.0" if any(a.version == "5.0" for a in acc) else max((a.version for a in acc), default="")
+    )
     for a in sorted(acc, key=lambda a: (a.version != latest, a.mae)):
         lines.append(
-            f"{a.station:<8}{station_series.get(a.station, ''):<14}{a.version:>6}{a.n:>6}"
+            f"{a.station:<8}{station_series.get(a.station, ''):<14}{a.version:>11}{a.n:>6}"
             f"{a.bias:>+8.2f}{a.mae:>7.2f}{a.cover80:>11.0%}{a.below50:>11.0%}"
         )
     lines += [
         "",
         "Bias = CLI minus NBM median (positive: NBM runs cold). MAE = typical miss.",
         "In 10-90% should be near 80% and Below p50 near 50% if NBM is well calibrated.",
-        f"Sorted by MAE, current NBM version ({latest}) first.",
+        "Highs are whole degrees, so a high equal to a percentile counts as half in, half out.",
+        "Above 80% in 10-90 = NBM's range is too wide; below 80% = too narrow.",
+        "",
+        "Same months, old NBM (earlier years) vs v5.0: is v5.0 better, or is it the season?",
+        "",
+        f"{'Station':<8}{'Series':<14}{'Months':>9}{'Old days':>10}{'Old MAE':>9}"
+        f"{'v5 days':>9}{'v5 MAE':>8}{'Change':>8}{'Old 10-90':>11}{'v5 10-90':>10}",
     ]
+    for c in sorted(seasons, key=lambda c: c.new.mae):
+        if c.old is None:
+            old_n = old_mae = change = old_cov = "-"
+        else:
+            old_n, old_mae = str(c.old.n), f"{c.old.mae:.2f}"
+            change = f"{c.new.mae - c.old.mae:+.2f}"
+            old_cov = f"{c.old.cover80:.0%}"
+        lines.append(
+            f"{c.station:<8}{station_series.get(c.station, ''):<14}{c.months:>9}{old_n:>10}"
+            f"{old_mae:>9}{c.new.n:>9}{c.new.mae:>8.2f}{change:>8}{old_cov:>11}"
+            f"{c.new.cover80:>10.0%}"
+        )
+    with_old = [c for c in seasons if c.old is not None]
+    if with_old:
+        n_old = sum(c.old.n for c in with_old)  # type: ignore[union-attr]
+        n_new = sum(c.new.n for c in with_old)
+        old_mae = sum(c.old.mae * c.old.n for c in with_old) / n_old  # type: ignore[union-attr]
+        new_mae = sum(c.new.mae * c.new.n for c in with_old) / n_new
+        lines += [
+            "",
+            f"Same-months total ({len(with_old)} stations): old MAE {old_mae:.2f}F, "
+            f"v5.0 MAE {new_mae:.2f}F ({new_mae - old_mae:+.2f}F).",
+        ]
+    missing = [c.station for c in seasons if c.old is None]
+    if missing:
+        lines.append(
+            "No old same-month data for: " + ", ".join(missing) + ". Run `nbm cli` to fetch "
+            "older NWS highs, then rerun the report."
+        )
     return "\n".join(lines)
+
+
+async def fetch_cli_for_nbm(storage: Storage, stations: list[str]) -> int:
+    """Backfill NWS CLI highs for every year the NBM forecasts cover."""
+    from .settlement_check import IEM_USER_AGENT, fetch_cli_history
+
+    first = storage.query("SELECT MIN(target_date) d FROM nbm_forecasts")[0]["d"]
+    if not first:
+        return 0
+    years = list(range(int(first[:4]), datetime.now(UTC).year + 1))
+    n = 0
+    async with httpx.AsyncClient(timeout=60, headers={"User-Agent": IEM_USER_AGENT}) as http:
+        for st in stations:
+            got = await fetch_cli_history(http, storage, st, years)
+            log.info("iem: %s CLI rows saved: %d (%s..)", st, got, years[0])
+            n += got
+    return n
 
 
 # --- main -----------------------------------------------------------------------------
@@ -387,7 +500,7 @@ def _stations(storage: Storage, cfg: dict[str, Any]) -> dict[str, str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m weatherbot.data.nbm")
-    parser.add_argument("command", choices=["sample", "backfill", "report"])
+    parser.add_argument("command", choices=["sample", "backfill", "cli", "report"])
     parser.add_argument("--config", default="config.yaml")
     parser.add_argument("--start", type=date.fromisoformat, default=DEFAULT_START)
     parser.add_argument("--end", type=date.fromisoformat)
@@ -434,11 +547,17 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  note {r['cycle_time']}: {r['note'][:200]}")
             return 0
 
+        if args.command == "cli":
+            n = asyncio.run(fetch_cli_for_nbm(storage, sorted(stations)))
+            print(f"NWS CLI history rows saved or refreshed: {n}. Now run the report.")
+            return 0
+
         acc = accuracy(storage, sorted(stations))
         if not acc:
             print("Nothing to compare yet. Run the settlement check and the NBM backfill first.")
             return 1
-        print(format_accuracy(acc, station_series))
+        seasons = same_season(storage, sorted(stations))
+        print(format_accuracy(acc, station_series, seasons))
         return 0
     finally:
         storage.close()

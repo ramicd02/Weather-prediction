@@ -38,7 +38,9 @@ log = logging.getLogger("weatherbot.nbm")
 
 NBM_BASE = "https://noaa-nbm-grib2-pds.s3.amazonaws.com"
 USER_AGENT = "weatherbot-nbm-backfill/0.1"
-DEFAULT_CYCLES = (1, 7, 13, 19)  # the cycles with all NBP elements
+# 13Z (~9 AM ET) is the run just before markets open. Each file is ~32 MB, so start with
+# one run a day; add 01,07,19 later with --cycles if the model needs them.
+DEFAULT_CYCLES = (13,)
 DEFAULT_START = date(2024, 11, 1)
 DEFAULT_LAG_MIN = 120
 
@@ -51,8 +53,27 @@ ELEMENTS = {
     "TXNP7": "p75_f",
     "TXNP9": "p90_f",
 }
-_HEADER_RE = re.compile(r"^\s*([A-Z0-9]{3,6})\s+NBM\s+V?\s*(\d+(?:\.\d+)*)\s+NBP\b", re.I)
-_ROW_RE = re.compile(r"^\s*(UTC|FHR|TXNMN|TXNSD|TXNP[12579])\b(.*)$")
+# Real header (Nov 2026): " 086092  NBM  NBP GUIDANCE    11/03/2026  1300 UTC".
+# Older files may carry a version ("NBM V4.2 NBP"); it is optional here.
+_HEADER_RE = re.compile(
+    r"^\s*([A-Z0-9]{3,8})\s+NBM\s+(?:V?\s*(\d+(?:\.\d+)*)\s+)?NBP\s+GUIDANCE\b", re.I
+)
+_ROW_RE = re.compile(r"^\s*(UTC|FHR|TXNMN|TXNSD|TXNP[12579])\b")
+
+# NBM v5.0 went live "on or about" 2026-04-30 13Z (could slip to 2026-05-04). The header
+# has no version, so runs in between are labelled "transition" and kept out of training.
+V5_EARLIEST = datetime(2026, 4, 30, 13, tzinfo=UTC)
+V5_LATEST = datetime(2026, 5, 4, 13, tzinfo=UTC)
+
+
+def nbm_version_for(cycle: datetime) -> str:
+    if cycle >= V5_LATEST:
+        return "5.0"
+    if cycle >= V5_EARLIEST:
+        return "transition"
+    return "4.x"
+
+
 _INT_RE = re.compile(r"-?\d+")
 MISSING = -99
 
@@ -91,7 +112,10 @@ def split_bulletins(text: str, wanted: set[str] | None = None) -> dict[str, tupl
         m = _HEADER_RE.match(line)
         if m:
             close()
-            cur, ver, lines = m.group(1).upper(), m.group(2), [line]
+            sid = m.group(1).upper()
+            if wanted and sid not in wanted and "K" + sid in wanted:
+                sid = "K" + sid  # tolerate 3-letter ids (MDW -> KMDW)
+            cur, ver, lines = sid, m.group(2) or "", [line]
         elif cur is not None:
             lines.append(line)
     close()
@@ -109,24 +133,44 @@ def parse_nbp_block(
 ) -> ParseResult:
     """Max-temperature rows from one station's NBP block.
 
-    Columns are placed by forecast hour (valid = cycle + FHR). If any element line has a
-    different number of values than the FHR line, the block is rejected rather than
-    risk misaligned columns.
+    Values are right-aligned under the FHR row, with `|` between days and blanks where a
+    value isn't given. Each value is matched to the FHR column whose last digit sits in the
+    same character position, so a blank can never shift a number into the wrong day. A
+    value that lines up with no FHR column rejects the whole block.
     """
-    found: dict[str, list[int]] = {}
+    version = version or nbm_version_for(cycle)
+    lines: dict[str, str] = {}
     for line in block.splitlines():
         m = _ROW_RE.match(line)
-        if m and m.group(1) not in found:
-            found[m.group(1)] = [int(x) for x in _INT_RE.findall(m.group(2))]
-    fhrs = found.get("FHR")
-    if not fhrs:
+        if m and m.group(1) not in lines:
+            lines[m.group(1)] = line
+
+    def cells(line: str) -> list[tuple[int, int]]:
+        label = _ROW_RE.match(line)
+        start = label.end() if label else 0
+        return [(m.end(), int(m.group(0))) for m in _INT_RE.finditer(line, start)]
+
+    if "FHR" not in lines:
         return ParseResult([], "no FHR line")
-    for name in ELEMENTS:
-        vals = found.get(name)
-        if vals is not None and len(vals) != len(fhrs):
-            return ParseResult([], f"{name} has {len(vals)} values for {len(fhrs)} hours")
-    if "TXNP5" not in found and "TXNMN" not in found:
+    fhr_cells = cells(lines["FHR"])
+    fhrs = [v for _, v in fhr_cells]
+    col_at = {pos: i for i, (pos, _) in enumerate(fhr_cells)}
+    if "TXNP5" not in lines and "TXNMN" not in lines:
         return ParseResult([], "no max-temperature lines")
+
+    found: dict[str, dict[int, int]] = {}
+    for name in ELEMENTS:
+        if name not in lines:
+            continue
+        by_col: dict[int, int] = {}
+        for pos, v in cells(lines[name]):
+            i = col_at.get(pos)
+            if i is None:
+                i = col_at.get(pos - 1, col_at.get(pos + 1))
+            if i is None or i in by_col:
+                return ParseResult([], f"{name} value {v} doesn't line up with an FHR column")
+            by_col[i] = v
+        found[name] = by_col
 
     available = iso(cycle + timedelta(minutes=lag_min))
     rows = []
@@ -144,8 +188,7 @@ def parse_nbp_block(
             "nbm_version": version,
         }
         for name, col in ELEMENTS.items():
-            vals = found.get(name)
-            v = vals[i] if vals is not None else None
+            v = found.get(name, {}).get(i)
             row[col] = None if v is None or v <= MISSING else v
         if row["p50_f"] is None and row["mean_f"] is None:
             continue
@@ -426,6 +469,8 @@ async def _sample(out_dir: Path, stations: set[str], lag: int) -> int:
     print(f"File: {url}")
     print(f"Size: {len(text) / 1e6:.1f} MB, {len(blocks)} station blocks in the file")
     print(f"Our stations found: {len(ours)}/{len(stations)}; forecast rows parsed: {len(rows)}")
+    if not ours:
+        print("  example station ids in the file: " + ", ".join(list(blocks)[:15]))
     for p in problems[:10]:
         print(f"  problem: {p}")
     for r in [r for r in rows if r["station"] == (keep[0] if keep else "")][:3]:

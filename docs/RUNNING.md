@@ -70,7 +70,7 @@ After about 30 minutes, run `status` again and confirm:
 ### Keep it running on Windows
 
 1. Set **Settings → System → Power → Sleep** to **Never** while plugged in.
-2. Create `run_logger.bat` in the repo folder:
+2. `run_logger.bat` is in the repo folder (it contains):
    ```bat
    @echo off
    cd /d %~dp0
@@ -80,7 +80,7 @@ After about 30 minutes, run `status` again and confirm:
    timeout /t 10
    goto loop
    ```
-3. Start it automatically: press **Win + R**, type `shell:startup`, and put a shortcut to `run_logger.bat` in that folder. It starts when you log in and restarts after crashes.
+3. Start it from PowerShell with `.\run_logger.bat` (the `.\` is required). Start it automatically: press **Win + R**, type `shell:startup`, and put a shortcut to `run_logger.bat` in that folder. It starts when you log in and restarts after crashes.
 
 Windows updates and power cuts will still cause gaps. A small Linux server (below) is more reliable once real money is involved.
 

@@ -35,6 +35,10 @@ RULES_PHRASES: list[tuple[str, str]] = [
     ("new orleans", "KMSY"),
     ("oklahoma city", "KOKC"),
     ("san antonio", "KSAT"),
+    ("newark", "KEWR"),
+    ("san diego", "KSAN"),
+    ("louisville", "KSDF"),
+    ("trenton", "KTTN"),
     ("reagan", "KDCA"),
     ("washington", "KDCA"),
 ]

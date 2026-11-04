@@ -19,6 +19,7 @@ SERIES = {
         {"ticker": "KXHIGHCHI", "title": "Highest temperature in Chicago"},
         {"ticker": "KXHIGHNY", "title": "Highest temperature in NYC"},
         {"ticker": "KXBTC", "title": "Bitcoin"},
+        {"ticker": "KXHIGHINFLATION", "title": "CPI above 5%"},
     ]
 }
 MARKETS = {
@@ -189,3 +190,21 @@ def test_rest_retries_on_429():
             r.asyncio.sleep = orig
 
     assert asyncio.run(go()) == [] and hits["n"] == 2
+
+
+def test_non_weather_series_are_excluded():
+    dl, storage, calls = make_logger()
+    asyncio.run(dl.discover_once())
+    assert not any(r.url.params.get("series_ticker") == "KXHIGHINFLATION" for r in calls), (
+        "excluded series must not be queried"
+    )
+    dl2, _, calls2 = make_logger(cfg={"logger": {"exclude_series": ["KXHIGHNY"]}})
+    asyncio.run(dl2.discover_once())
+    assert dl2.tracked == {"KXHIGHCHI-26NOV05-B54.5"}
+
+
+def test_expiration_value_recorded_on_settlement():
+    s = Storage(":memory:")
+    s.upsert_market({"ticker": "T1", "close_time": "2020-01-01T00:00:00Z"}, "KXHIGHCHI", None, None)
+    s.record_settlement("T1", "finalized", "yes", 10000, "63")
+    assert s.query("SELECT expiration_value v FROM markets")[0]["v"] == "63"

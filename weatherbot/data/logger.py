@@ -39,6 +39,10 @@ log = logging.getLogger("weatherbot.logger")
 
 PLACEHOLDER_UA = "REPLACE_WITH_YOUR_EMAIL"
 
+# Series that share the KXHIGH prefix but aren't daily-high temperature markets.
+# More can be added with `logger.exclude_series` in config.yaml.
+DEFAULT_EXCLUDE = frozenset({"KXHIGHINFLATION"})
+
 
 # --- logging -------------------------------------------------------------------------
 
@@ -90,6 +94,7 @@ class DataLogger:
         self.ws = ws
         self.nws = nws
         self.prefix: str = lc.get("series_prefix", "KXHIGH")
+        self.exclude: set[str] = set(DEFAULT_EXCLUDE) | set(lc.get("exclude_series") or [])
         self.discovery_s = float(lc.get("discovery_interval_s", 900))
         self.settle_s = float(lc.get("settlement_poll_interval_s", 1800))
         self.obs_s = float(lc.get("obs_interval_s", 600))
@@ -149,6 +154,7 @@ class DataLogger:
             s
             for s in await self.rest.list_series()
             if str(s.get("ticker", "")).startswith(self.prefix)
+            and s.get("ticker") not in self.exclude
         ]
         found: set[str] = set()
         new = 0
@@ -253,7 +259,9 @@ class DataLogger:
                 value = m.get("settlement_value_dollars")
                 value_e4 = dollars_to_e4(value) if value not in (None, "") else None
                 if result or status in ("determined", "finalized", "amended", "disputed"):
-                    self.storage.record_settlement(ticker, status, result, value_e4)
+                    self.storage.record_settlement(
+                        ticker, status, result, value_e4, m.get("expiration_value") or None
+                    )
             await self._sleep(self.settle_s)
 
     # --- NWS ---------------------------------------------------------------------------
@@ -340,7 +348,9 @@ class DataLogger:
 # --- status report -------------------------------------------------------------------
 
 
-def status_report(storage: Storage, db_path: Path) -> str:
+def status_report(
+    storage: Storage, db_path: Path, exclude: set[str] | frozenset[str] = frozenset()
+) -> str:
     q = storage.query
     lines: list[str] = []
     size_mb = sum(p.stat().st_size for p in db_path.parent.glob(db_path.name + "*")) / 1e6
@@ -378,6 +388,8 @@ def status_report(storage: Storage, db_path: Path) -> str:
              (SELECT MAX(climate_date) FROM cli_reports c WHERE c.station=m.station) last_cli
            FROM markets m GROUP BY m.series_ticker ORDER BY m.series_ticker"""
     ):
+        if r["s"] in exclude:
+            continue
         flag = (
             ""
             if r["src"] == "config"
@@ -466,7 +478,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"No database yet at {db_path}. Start the logger first.")
             return 1
         storage = Storage(db_path)
-        print(status_report(storage, db_path))
+        exclude = set(DEFAULT_EXCLUDE) | set(cfg.get("logger", {}).get("exclude_series") or [])
+        print(status_report(storage, db_path, exclude))
         storage.close()
         return 0
 

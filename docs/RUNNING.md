@@ -19,7 +19,7 @@ It needs to run 24/7. Every hour it's off is order-book history you can't downlo
 
 ### Install (once)
 
-1. Install **Python 3.11 or newer** from python.org. On the first installer screen, tick **"Add python.exe to PATH"**.
+1. Install **Python 3.12** from python.org (3.11–3.13 work; brand-new versions may lack ready-made packages). On the first installer screen, tick **"Add python.exe to PATH"**.
 2. Install **Git** from git-scm.com (default options are fine).
 3. Open **PowerShell** and run:
    ```powershell
@@ -28,9 +28,9 @@ It needs to run 24/7. Every hour it's off is order-book history you can't downlo
    cd Weather-prediction
    python -m venv .venv
    .\.venv\Scripts\Activate.ps1
-   pip install -e ".[dev]"
+   python -m pip install -e ".[dev]"
    ```
-   If PowerShell blocks `Activate.ps1`, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once, then try again.
+   Use `python -m pip` rather than `pip`: some Windows security policies block the `pip.exe` launcher. If PowerShell blocks `Activate.ps1`, run `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` once, then try again.
 
 ### Configure (once)
 
@@ -50,7 +50,7 @@ It needs to run 24/7. Every hour it's off is order-book history you can't downlo
 ### Check it works
 
 ```powershell
-python -m pytest -q                       # should say "39 passed"
+python -m pytest -q                       # should say "53 passed"
 python -m weatherbot.data.logger          # starts logging; leave the window open
 ```
 
@@ -91,7 +91,7 @@ sudo apt update && sudo apt install -y python3 python3-venv git
 git clone https://github.com/ramicd02/Weather-prediction.git ~/Weather-prediction
 cd ~/Weather-prediction
 python3 -m venv .venv && . .venv/bin/activate
-pip install -e ".[dev]"
+python -m pip install -e ".[dev]"
 cp .env.example .env && nano .env        # fill in as above; key path e.g. /home/<you>/.kalshi/kalshi_read.pem
 chmod 600 .env ~/.kalshi/*.pem
 nano config.yaml                          # set your email in nws.user_agent
@@ -109,14 +109,26 @@ journalctl -u weatherbot-logger -f       # live logs (Ctrl+C to exit)
 python -m weatherbot.data.logger status  # from the repo folder, venv active
 ```
 
-## 4. Day-to-day
+## 4. Settlement check
+
+Kalshi's rules settle on The Weather Company's number, not the NWS Daily Climate Report. This command measures how often the two agree, per city:
+
+```
+python -m weatherbot.data.settlement_check
+```
+
+It pulls every settled KXHIGH market from Kalshi (read-only), backfills the NWS CLI highs from the Iowa Environmental Mesonet, and prints a table. It's safe to run while the logger is running. The first run takes a while; later runs only fetch what's new. Add `--no-fetch` to reprint the report from saved data, or `--series KXHIGHCHI` for one city. Disagreeing days go to `data_store/settlement_mismatches.csv`.
+
+"Outcome agree" is the share of city-days where the CLI high would have settled every market the same way Kalshi did. Only cities near 100% are candidates for trading.
+
+## 5. Day-to-day
 
 | Task | Command |
 | --- | --- |
 | Health check | `python -m weatherbot.data.logger status` |
 | Stop (Windows) | Close the window or press Ctrl+C |
 | Stop / start (Linux) | `sudo systemctl stop weatherbot-logger` / `start` |
-| Update code | `git pull`, then restart the logger |
+| Update code | `git pull`, then `python -m pip install -e ".[dev]"`, then restart the logger |
 | Back up data | Copy `data_store/weatherbot.db` while the logger is stopped, or use `sqlite3 data_store/weatherbot.db ".backup backup.db"` while running |
 
 ## What gets stored

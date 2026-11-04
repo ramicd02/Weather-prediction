@@ -20,7 +20,7 @@ Each city-day is one event with about six contracts: four 2°F brackets plus an 
 | --- | --- |
 | Contract | `KXHIGH<CITY>-<YYMONDD>-B<center>` for brackets, `-T<strike>` for tails. Bracket B74.5 pays if the settled high is 74 or 75 (both ends inclusive). |
 | Tail direction | Read `strike_type` (`greater`, `less`, `between`) and `floor_strike`/`cap_strike` from the API. Never infer it from the ticker. |
-| Settlement | Highest temperature in the final NWS Daily Climate Report (CLI) for the named station, usually issued the next morning. |
+| Settlement | Highest temperature for the named station **according to The Weather Company** (per each market's rules; values at weather.com/kalshi). The rules cite the station's NWS CLI code (e.g. CLIMDW). The NWS Daily Climate Report high is our proxy until the settlement check shows it matches Kalshi's settled values. |
 | Day window | Midnight to midnight local standard time, even during daylight saving time. |
 | Trading hours | Opens about 10:00 AM ET the day before; closes 11:59 PM ET on the weather date. |
 | Cities | 20 US cities. Station traps: NYC = Central Park (KNYC), Chicago = Midway (KMDW), Dallas = DFW, Houston = Hobby. |
@@ -66,7 +66,8 @@ Risks the filters can't remove: edge fading as more weather bots arrive, Kalshi 
 | Forecast distribution | NBM on AWS (`noaa-nbm-grib2-pds`), live on NOMADS | Free. Archive back to ~May 2020, so no live NBM logging needed. |
 | NBM text bulletins | NOMADS `blend.YYYYMMDD/CC/text` | Free. Station-level tables, easier than GRIB2. |
 | Live observations | api.weather.gov `/stations/{ICAO}/observations` | Free, no key. |
-| Settlement values (recent) | api.weather.gov CLI products | Free, keeps ~7 days only. |
+| Settlement source | The Weather Company (weather.com/kalshi) | Terms of use not yet checked; don't scrape. |
+| Settlement proxy (recent) | api.weather.gov CLI products | Free, keeps ~7 days only. |
 | Settlement history | Iowa Environmental Mesonet `/json/cli.py` | Free. Training labels. |
 | Kalshi price history | Kalshi API candlesticks, trades, settled markets | Free with an account. |
 | Optional second model | Open-Meteo | Free tier is non-commercial only; skip it. |

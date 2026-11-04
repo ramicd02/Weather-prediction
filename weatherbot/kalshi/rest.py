@@ -96,3 +96,10 @@ class KalshiReadClient:
     async def list_api_keys(self) -> list[dict[str, Any]]:
         data = await self.get("/api_keys")
         return list(data.get("api_keys") or [])
+
+    async def list_settled_markets(self, series_ticker: str) -> list[dict[str, Any]]:
+        """Settled markets still on the live endpoint (settled after the historical cutoff)."""
+        return await self.list_markets(series_ticker, status="settled")
+
+    async def get_historical_cutoff(self) -> dict[str, Any]:
+        return await self.get("/historical/cutoff")

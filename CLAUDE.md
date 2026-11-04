@@ -3,7 +3,7 @@
 ## What this project is
 A Python bot that prices Kalshi daily-high temperature markets (KXHIGH series) from NOAA forecast data and trades where its fair value beats the order book. The full build plan is in `docs/PLAN.md`. Read it before starting any phase, and don't start work outside the current phase without asking.
 
-Current phase: **Phase 1, Data pipeline.** The read-only data logger (`weatherbot/data/logger.py`) is done; see `docs/RUNNING.md`. Next task: CLI history + NBM archive backfill.
+Current phase: **Phase 1, Data pipeline.** The read-only data logger (`weatherbot/data/logger.py`) is done and running on real data; see `docs/RUNNING.md`. The settlement check (`weatherbot/data/settlement_check.py`) backfills CLI history and measures how often Kalshi's settled high matches the NWS CLI high. Next task: run it on real data, then the NBM archive backfill.
 
 Note: Kalshi now sends prices as 4-decimal dollar strings (sub-penny pricing) and sizes as fixed-point strings. Store prices as integer e4 (1/10,000 dollar) and sizes as integer e2 (1/100 contract) via `weatherbot/kalshi/prices.py`. The legacy integer-cent fields are deprecated.
 
@@ -13,7 +13,7 @@ Note: Kalshi now sends prices as 4-decimal dollar strings (sub-penny pricing) an
 3. **No order placement outside `weatherbot/trading/`.** Data and model code is read-only against Kalshi. Every order path goes through the risk manager. No exceptions, no shortcuts "for testing."
 4. **Brackets are inclusive on both ends.** Bracket `B74.5` pays if the settled high is 74 **or** 75. Never model brackets as half-open intervals.
 5. **Read `strike_type`, `floor_strike` and `cap_strike` from the API.** Never infer a tail market's direction from its ticker.
-6. **Settlement source is the final NWS Daily Climate Report (CLI)** for the market's named station, using the midnight-to-midnight **local standard time** window, even during daylight saving time. Get each market's station from its own rules, not from a hardcoded guess.
+6. **Settlement source is The Weather Company**, as each market's rules state ("the maximum temperature recorded at <city> (CLI<code>) ... according to The Weather Company"; values shown at weather.com/kalshi). Preliminary Weather Company readings can differ from the final value by rounding and conversion. The NWS Daily Climate Report (CLI) for the same station, on its midnight-to-midnight **local standard time** window, is our **unvalidated proxy**: don't price or trade a city on it until `settlement_check` shows it agrees with Kalshi's settled results for that city. Get each market's station and source from its own rules, not from a hardcoded guess, and re-check the rules text if it changes.
 7. **All risk limits live in `config.yaml`.** No magic numbers for sizing, caps or stops anywhere else.
 8. **No look-ahead in backtests.** A backtest at time T may only use data that was published before T, judged by issuance time and not by valid time.
 
@@ -24,11 +24,13 @@ Note: Kalshi now sends prices as 4-decimal dollar strings (sub-penny pricing) an
 - The order book returns **yes bids and no bids only**. A no bid at X¢ is a yes ask at (100 − X)¢.
 - Rate limits (Basic tier): 20 reads/s, 10 writes/s. Implement a client-side token bucket, prefer WebSocket over polling, and back off on HTTP 429.
 - Taker fee per order: `ceil(0.07 × contracts × P × (1 − P))` dollars, where P is the price in dollars. Maker fee is 0 unless the series is on Kalshi's non-standard fee list.
+- Settled markets older than the historical cutoff (`GET /historical/cutoff`, field `market_settled_ts`) are only on `GET /historical/markets`; newer ones stay on `GET /markets?status=settled`. `expiration_value` is the value the market settled on.
 - When unsure about any endpoint, field name or parameter, check `https://docs.kalshi.com/llms.txt` and the OpenAPI spec. Don't guess.
 
 ## Weather data facts
 - Forecasts: NOAA National Blend of Models (NBM). Archive on AWS bucket `noaa-nbm-grib2-pds` (no account needed, back to about May 2020); live on NOMADS.
 - Observations: `api.weather.gov/stations/{ICAO}/observations` (no key; send a descriptive `User-Agent` header with contact info, as NWS requests).
+- Settlement: The Weather Company (weather.com/kalshi). Its terms of use aren't checked yet, so don't scrape it.
 - Recent CLI reports: api.weather.gov products (keeps about 7 days only).
 - CLI history: Iowa Environmental Mesonet, `https://mesonet.agron.iastate.edu/json/cli.py`.
 - Don't use Open-Meteo's free API. Its terms restrict it to non-commercial use.

@@ -18,6 +18,14 @@ python -m weatherbot.data.logger status   # health check
 
 It records, for every KXHIGH city: market metadata and results, full order-book ladders, every public trade, NWS observations at each settlement station, and preliminary + final Daily Climate Reports.
 
-Next: backfill historical CLI highs (IEM) and the NBM forecast archive.
+Settlement check (backfills historical CLI highs and compares them to Kalshi's settled values):
+
+```
+python -m weatherbot.data.settlement_check
+```
+
+Kalshi's rules name The Weather Company as the settlement source, so the NWS CLI high is only a proxy until this check shows it matches.
+
+Next: the NBM forecast archive backfill.
 
 Not financial advice. No real orders until Gate B in the plan passes.

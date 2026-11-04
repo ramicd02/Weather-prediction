@@ -50,7 +50,7 @@ It needs to run 24/7. Every hour it's off is order-book history you can't downlo
 ### Check it works
 
 ```powershell
-python -m pytest -q                       # should say "53 passed"
+python -m pytest -q                       # should say "63 passed"
 python -m weatherbot.data.logger          # starts logging; leave the window open
 ```
 
@@ -121,7 +121,19 @@ It pulls every settled KXHIGH market from Kalshi (read-only), backfills the NWS 
 
 "Outcome agree" is the share of city-days where the CLI high would have settled every market the same way Kalshi did. Only cities near 100% are candidates for trading.
 
-## 5. Day-to-day
+## 5. NBM forecast backfill
+
+Downloads past National Blend of Models forecasts (the NBP text bulletin) for every settlement station from NOAA's free archive. Each forecast gives tomorrow's high as a median, spread and 10th–90th percentiles.
+
+```
+python -m weatherbot.data.nbm sample      # first: checks one file and saves data_store/nbm_sample.txt
+python -m weatherbot.data.nbm backfill    # Nov 2024 to yesterday, 4 runs a day; safe to stop and rerun
+python -m weatherbot.data.nbm report      # NBM vs NWS high per city: bias, typical miss, calibration
+```
+
+Each forecast is stamped `available_at` = run time + 2 hours, and backtests may only use forecasts available before the trade time. Options: `--start 2026-01-01`, `--end`, `--cycles 13`, `--concurrency 4`.
+
+## 6. Day-to-day
 
 | Task | Command |
 | --- | --- |

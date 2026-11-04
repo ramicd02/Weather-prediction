@@ -3,7 +3,7 @@
 ## What this project is
 A Python bot that prices Kalshi daily-high temperature markets (KXHIGH series) from NOAA forecast data and trades where its fair value beats the order book. The full build plan is in `docs/PLAN.md`. Read it before starting any phase, and don't start work outside the current phase without asking.
 
-Current phase: **Phase 1, Data pipeline.** The read-only data logger (`weatherbot/data/logger.py`) is done and running on real data; see `docs/RUNNING.md`. The settlement check (`weatherbot/data/settlement_check.py`) backfills CLI history and measures how often Kalshi's settled high matches the NWS CLI high. It has been run on real data (see rule 6). Next task: NBM archive backfill.
+Current phase: **Phase 1, Data pipeline.** The read-only data logger (`weatherbot/data/logger.py`) is done and running on real data; see `docs/RUNNING.md`. The settlement check (`weatherbot/data/settlement_check.py`) backfills CLI history and measures how often Kalshi's settled high matches the NWS CLI high. It has been run on real data (see rule 6). The NBM backfill (`weatherbot/data/nbm.py`, NBP text bulletins) is built; its parser still needs checking against a real bulletin (`nbm sample`). NBM v5.0 (from about 2026-04-30) changed the daily max definition, so model each `nbm_version` separately.
 
 Note: Kalshi now sends prices as 4-decimal dollar strings (sub-penny pricing) and sizes as fixed-point strings. Store prices as integer e4 (1/10,000 dollar) and sizes as integer e2 (1/100 contract) via `weatherbot/kalshi/prices.py`. The legacy integer-cent fields are deprecated.
 

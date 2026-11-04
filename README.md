@@ -26,6 +26,12 @@ python -m weatherbot.data.settlement_check
 
 Kalshi's rules name The Weather Company as the settlement source, so the NWS CLI high is only a proxy until this check shows it matches.
 
-Next: the NBM forecast archive backfill.
+NBM forecast backfill (NOAA's NBP bulletin: tomorrow's high as percentiles, per station):
+
+```
+python -m weatherbot.data.nbm sample
+python -m weatherbot.data.nbm backfill
+python -m weatherbot.data.nbm report
+```
 
 Not financial advice. No real orders until Gate B in the plan passes.

@@ -136,6 +136,31 @@ CREATE TABLE IF NOT EXISTS kalshi_settled (
     raw_json TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_settled_series_date ON kalshi_settled(series_ticker, event_date);
+
+-- NBM probabilistic text bulletin (NBP): daily max-temperature distribution per station.
+CREATE TABLE IF NOT EXISTS nbm_forecasts (
+    station TEXT NOT NULL,        -- ICAO, e.g. KMDW
+    cycle_time TEXT NOT NULL,     -- model run, ISO UTC
+    available_at TEXT NOT NULL,   -- earliest time a backtest may use it (cycle + lag)
+    valid_time TEXT NOT NULL,     -- bulletin column time, ISO UTC
+    fhr INTEGER NOT NULL,         -- forecast hour
+    target_date TEXT NOT NULL,    -- local day the max belongs to (YYYY-MM-DD)
+    mean_f REAL, sd_f REAL,
+    p10_f REAL, p25_f REAL, p50_f REAL, p75_f REAL, p90_f REAL,
+    nbm_version TEXT,
+    PRIMARY KEY (station, cycle_time, target_date)
+);
+CREATE INDEX IF NOT EXISTS ix_nbm_station_target ON nbm_forecasts(station, target_date);
+
+-- One row per NBP file attempted, so the backfill can resume.
+CREATE TABLE IF NOT EXISTS nbm_files (
+    cycle_time TEXT PRIMARY KEY,
+    status TEXT NOT NULL,         -- 'ok' | 'missing' | 'error'
+    bytes INTEGER,
+    rows INTEGER,
+    note TEXT,
+    fetched_at TEXT NOT NULL
+);
 """
 
 
@@ -394,6 +419,39 @@ class Storage:
                 json.dumps(m),
             ),
         )
+
+    # --- NBM ---------------------------------------------------------------------------
+
+    def upsert_nbm_forecasts(self, rows: Iterable[dict[str, Any]]) -> int:
+        cols = [
+            "station", "cycle_time", "available_at", "valid_time", "fhr", "target_date",
+            "mean_f", "sd_f", "p10_f", "p25_f", "p50_f", "p75_f", "p90_f", "nbm_version",
+        ]  # fmt: skip
+        data = [tuple(r.get(c) for c in cols) for r in rows]
+        updates = ", ".join(f"{c}=excluded.{c}" for c in cols[2:])
+        self.conn.executemany(
+            f"""INSERT INTO nbm_forecasts ({", ".join(cols)}) VALUES ({", ".join("?" * len(cols))})
+                ON CONFLICT(station, cycle_time, target_date) DO UPDATE SET {updates}""",
+            data,
+        )
+        return len(data)
+
+    def record_nbm_file(
+        self, cycle_time: str, status: str, size: int | None, rows: int | None, note: str = ""
+    ) -> None:
+        self.conn.execute(
+            """INSERT INTO nbm_files (cycle_time, status, bytes, rows, note, fetched_at)
+               VALUES (?,?,?,?,?,?)
+               ON CONFLICT(cycle_time) DO UPDATE SET status=excluded.status, bytes=excluded.bytes,
+                 rows=excluded.rows, note=excluded.note, fetched_at=excluded.fetched_at""",
+            (cycle_time, status, size, rows, note[:500], utcnow()),
+        )
+
+    def nbm_done_cycles(self) -> set[str]:
+        rows = self.conn.execute(
+            "SELECT cycle_time FROM nbm_files WHERE status IN ('ok', 'missing')"
+        ).fetchall()
+        return {r["cycle_time"] for r in rows}
 
     # --- events ----------------------------------------------------------------------
 

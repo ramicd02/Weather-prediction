@@ -56,6 +56,8 @@ only from data before the test months.
 1. Config split (`config.local.yaml`) and Phase 2 settings. DONE
 2. Price backfill: `python -m weatherbot.backtest.prices` -> `kalshi_candles`. DONE
 3. Fees, bracket math, event Kelly, test-first. DONE
-4. Calibrated model + scoring report (raw NBM vs calibrated vs market).
+4. Calibrated model (`weatherbot/model/nbm_dist.py`, `calibrate.py`) and scoring report
+   (`python -m weatherbot.backtest.score`, tuning months only). DONE (code); real-data
+   scores pending the price backfill.
 5. Backtest engine (taker and maker runs, trades CSV, profit reports).
 6. Gate A report.

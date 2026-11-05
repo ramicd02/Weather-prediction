@@ -78,6 +78,11 @@ model:
   version_handover_days: 120       # v5.0 fully replaces the old NBM fit after this many days
   winter_spread_factor: 1.15       # extra widening Dec-Feb until v5.0 has a winter of data
   winter_months: [12, 1, 2]
+  min_winter_days: 60              # v5.0 winter days needed before the widening stops
+  season_bandwidth_days: 45        # training days weighted by closeness in time of year
+  recency_days: 365                # ...and by recency (weight e^-age/365)
+  shrink_days: 30                  # thin cities pulled toward the all-city fit
+  min_train_days: 60               # don't score a city-month with less history
 
 backtest:
   bankroll_usd: 1000               # notional; no real money

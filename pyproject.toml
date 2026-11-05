@@ -8,6 +8,7 @@ dependencies = [
     "websockets>=13",
     "cryptography>=42",
     "pyyaml>=6",
+    "numpy>=1.26",
 ]
 
 [project.optional-dependencies]

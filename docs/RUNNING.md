@@ -55,7 +55,7 @@ It needs to run 24/7. Every hour it's off is order-book history you can't downlo
 ### Check it works
 
 ```powershell
-python -m pytest -q                       # should say "98 passed"
+python -m pytest -q                       # should say "114 passed"
 python -m weatherbot.data.logger          # starts logging; leave the window open
 ```
 
@@ -147,6 +147,14 @@ Hourly bid, ask, trade price and volume for every settled weather market, for th
 python -m weatherbot.backtest.prices --limit 20   # quick check first
 python -m weatherbot.backtest.prices              # everything; safe to stop and rerun
 ```
+
+Then score the model on the tuning months (raw NBM vs calibrated vs market; takes about a minute):
+
+```
+python -m weatherbot.backtest.score
+```
+
+Per-day detail goes to `data_store/score_days.csv`. Nothing after `backtest.tuning_end` is ever loaded.
 
 ## 7. Day-to-day
 

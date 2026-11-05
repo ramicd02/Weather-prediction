@@ -74,3 +74,22 @@ market is ahead of it at every hour (15-21 UTC). Carlos chose to test same-day t
 10-minute publication lag) and `weatherbot/backtest/sameday.py` (empirical model of
 final high minus max-so-far by hour, drop and NBM headroom; walk-forward; market vs
 model at 10/13/15/17/19 LST; dead-bracket check). Same rules: tuning months only.
+
+### Result (2026-11-05): no same-day edge either
+Hourly METAR history, 14,600+ station-days, ~5,000 events per hour, tuning months only:
+
+| Local std hour | Locked | Market LL | Model LL | Best w | Walk-forward gain (90% range) |
+| --- | --- | --- | --- | --- | --- |
+| 10 | 3% | 1.044 | 2.548 | 0.00 | 0.0000 |
+| 13 | 10% | 0.739 | 1.310 | 0.00 | 0.0000 |
+| 15 | 25% | 0.409 | 0.831 | 0.05 | 0.0000 (-0.0005 to +0.0004) |
+| 17 | 54% | 0.102 | 0.512 | 0.10 | +0.0006 (+0.0002 to +0.0010) |
+| 19 | 80% | 0.057 | 0.287 | 0.15 | +0.0025 (+0.0017 to +0.0034) |
+
+The market prices the observed high far better than our hourly-observation model at
+every hour; the blend gains are real but tiny, far below spreads and fees. Dead
+brackets (already impossible) carry average bids of 0.00-0.01c, so there's nothing to
+sell. Conclusion: KXHIGH looks efficient against both free forecast data (NBM) and free
+observations (METAR). Not tested: 5-minute data and reaction speed (competing with bots
+on latency), paid forecast sources. Kalshi's Liquidity Incentive Program ends
+2027-01-01 (help.kalshi.com, checked 2026-11-05).

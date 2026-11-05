@@ -1,5 +1,6 @@
 """Scoring report: look-ahead rules and market comparison (in-memory data)."""
 
+import random
 from datetime import date, timedelta
 
 import numpy as np
@@ -53,14 +54,14 @@ def _ladder(series, d, high):
 
 
 def build(storage, days=200, bias=2):
-    rng = np.random.default_rng(0)
+    rng = random.Random(0)
     start = date(2025, 1, 1)
     fcs, highs = [], []
     for i in range(days):
         d = start + timedelta(days=i)
         mu = 60 + 10 * np.sin(i / 30)
         fcs.append(_fc("KMDW", d, mu))
-        highs.append((d.isoformat(), int(round(mu + bias + 2 * rng.standard_normal())), 0, "x"))
+        highs.append((d.isoformat(), int(round(mu + bias + 2 * rng.gauss(0.0, 1.0))), 0, "x"))
         fcs.append(_fc("KMIA", d, 80))
     storage.upsert_nbm_forecasts(fcs)
     storage.upsert_cli_history("KMDW", highs)

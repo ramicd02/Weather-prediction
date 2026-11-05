@@ -1,6 +1,7 @@
 """NBM distribution and walk-forward calibration (synthetic data, no network)."""
 
 import math
+import random
 from datetime import date, timedelta
 
 import numpy as np
@@ -62,11 +63,14 @@ def test_forecast_pmf_sums_to_one_and_centres_on_median():
 
 
 def _synthetic(n: int, bias: float, stretch: float, seed: int = 1, start=date(2025, 1, 1)):
-    rng = np.random.default_rng(seed)
-    mus = 60 + 15 * rng.random(n)
-    sds = 1.5 + rng.random(n)
+    # Python's random, not numpy.random: some Windows security policies block
+    # numpy.random's compiled files, and the bot itself never needs them.
+    rng = random.Random(seed)
+    mus = np.array([60 + 15 * rng.random() for _ in range(n)])
+    sds = np.array([1.5 + rng.random() for _ in range(n)])
     knots = np.stack([normal_knots(m, s) for m, s in zip(mus, sds, strict=True)])
-    highs = np.rint(mus + bias + stretch * sds * rng.standard_normal(n))
+    noise = np.array([rng.gauss(0.0, 1.0) for _ in range(n)])
+    highs = np.rint(mus + bias + stretch * sds * noise)
     dates = [start + timedelta(days=i) for i in range(n)]
     return knots, highs, dates
 
@@ -139,3 +143,15 @@ def test_winter_widening_until_v5_has_a_winter():
 def test_family_mapping():
     assert family_of("5.0") == NEW and family_of("4.3") == OLD and family_of("4.x") == OLD
     assert family_of("transition") is None
+
+
+def test_bot_code_never_loads_numpy_random():
+    # Carlos's PC blocks numpy.random's compiled files (Windows Application Control).
+    import subprocess
+    import sys
+
+    code = (
+        "import sys, weatherbot.backtest.score, weatherbot.model.calibrate; "
+        "sys.exit('numpy.random' in sys.modules)"
+    )
+    assert subprocess.run([sys.executable, "-c", code], check=False).returncode == 0

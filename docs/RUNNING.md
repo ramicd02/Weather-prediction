@@ -55,7 +55,7 @@ It needs to run 24/7. Every hour it's off is order-book history you can't downlo
 ### Check it works
 
 ```powershell
-python -m pytest -q                       # should say "118 passed"
+python -m pytest -q                       # should say "124 passed"
 python -m weatherbot.data.logger          # starts logging; leave the window open
 ```
 
@@ -155,6 +155,12 @@ python -m weatherbot.backtest.score
 ```
 
 Per-day detail goes to `data_store/score_days.csv`. Nothing after `backtest.tuning_end` is ever loaded.
+
+Two checks on whether any edge exists (does the model add information to the market's price, and is the market slow at some hour):
+
+```
+python -m weatherbot.backtest.diagnose
+```
 
 ## 7. Day-to-day
 

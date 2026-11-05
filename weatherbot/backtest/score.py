@@ -12,8 +12,8 @@ Walk-forward and look-ahead free (docs/PHASE2.md):
 Three scores, lower is better:
 - Degree log loss: -log P(actual whole-degree high). Raw NBM vs calibrated.
 - Bracket log loss: -log P(the bracket that won) on Kalshi's real ladder, for events
-  where every bracket had a fresh quote at decision time and the winning bracket's
-  spread was 10c or less. Raw, calibrated, and the market (mid-prices rescaled so each
+  where every bracket had a fresh quote at decision time with a spread of 10c or less
+  (chosen before the outcome is known). Raw, calibrated, and the market (mid-prices rescaled so each
   event adds to 100%).
 - 10-90 coverage: share of highs inside the 10th-90th percentile range (ties count half);
   80% is ideal.
@@ -192,8 +192,10 @@ def score(
             }
             if len(winners) == 1 and all(quotes.values()):
                 w = winners[0]
-                bid, ask = quotes[w["ticker"]]  # type: ignore[misc]
-                if ask - bid <= MAX_SPREAD_E4:
+                # Filter on information known before the outcome only: every bracket's
+                # spread, not the winner's (that would pick the sample by the result).
+                widest = max(q[1] - q[0] for q in quotes.values())  # type: ignore[index]
+                if widest <= MAX_SPREAD_E4:
                     mids = {t: (q[0] + q[1]) / 2 for t, q in quotes.items()}  # type: ignore[index]
                     total = sum(mids.values())
                     pm = mids[w["ticker"]] / total if total > 0 else 0
@@ -247,8 +249,7 @@ def format_report(scores: list[StationScore], end: date, series_of: dict[str, st
         f"10-90 coverage {_pct(allv['cov_raw'])} -> {_pct(allv['cov_cal'])} (80% ideal).",
         f"Bracket LL on {len(allv['br_mkt'])} events with clean quotes: raw {_m(allv['br_raw'])}, "
         f"calibrated {_m(allv['br_cal'])}, market {_m(allv['br_mkt'])}.",
-        "Events need a fresh quote on every bracket and the winner's spread <= 10c, so the",
-        "bracket columns stay '-' until the Kalshi price backfill has run.",
+        "Events need a fresh quote on every bracket, each with a spread of 10c or less.",
     ]
     return "\n".join(lines)
 

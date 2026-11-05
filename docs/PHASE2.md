@@ -59,5 +59,9 @@ only from data before the test months.
 4. Calibrated model (`weatherbot/model/nbm_dist.py`, `calibrate.py`) and scoring report
    (`python -m weatherbot.backtest.score`, tuning months only). DONE (code); real-data
    scores pending the price backfill.
-5. Backtest engine (taker and maker runs, trades CSV, profit reports).
+5. Backtest engine (taker and maker runs, trades CSV, profit reports). ON HOLD: the
+   scoring report (2026-11-05) showed the market at 16 UTC far better than the model
+   (bracket log loss 1.397 vs 1.618 calibrated, 1.681 raw, 5,124 events). First run
+   `python -m weatherbot.backtest.diagnose`: does the model add information to the
+   market, and is the market slow at any hour? Build the backtest only if it does.
 6. Gate A report.

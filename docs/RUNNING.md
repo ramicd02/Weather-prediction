@@ -55,7 +55,7 @@ It needs to run 24/7. Every hour it's off is order-book history you can't downlo
 ### Check it works
 
 ```powershell
-python -m pytest -q                       # should say "124 passed"
+python -m pytest -q                       # should say "139 passed"
 python -m weatherbot.data.logger          # starts logging; leave the window open
 ```
 
@@ -161,6 +161,18 @@ Two checks on whether any edge exists (does the model add information to the mar
 ```
 python -m weatherbot.backtest.diagnose
 ```
+
+### Same-day lock-in test
+
+Station observation history (hourly METARs, with the official 6-hour max) from the Iowa Environmental Mesonet, then the test:
+
+```
+python -m weatherbot.data.obs_history sample      # first: check the format on one month
+python -m weatherbot.data.obs_history backfill    # Nov 2024 to yesterday; ~20 minutes
+python -m weatherbot.backtest.sameday
+```
+
+Add `--five-minute` to both the backfill and the test to include 5-minute data (much larger download).
 
 ## 7. Day-to-day
 

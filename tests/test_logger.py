@@ -232,3 +232,11 @@ def test_repo_config_has_all_risk_limits():
     regions = [s for members in cfg["regions"].values() for s in members]
     assert len(regions) == len(set(regions)) == 24
     assert set(regions) == set(cfg["stations"])
+
+
+def test_every_station_has_a_standard_utc_offset():
+    from weatherbot.data.logger import load_config
+
+    cfg = load_config("config.yaml")
+    assert set(cfg["station_utc_offset"]) == set(cfg["stations"].values())
+    assert set(cfg["station_utc_offset"].values()) <= {-5, -6, -7, -8}

@@ -65,3 +65,12 @@ only from data before the test months.
    `python -m weatherbot.backtest.diagnose`: does the model add information to the
    market, and is the market slow at any hour? Build the backtest only if it does.
 6. Gate A report.
+
+## Pivot: same-day lock-in test (2026-11-05)
+`diagnose` showed the day-ahead NBM model adds almost nothing to the market (best blend
+weight ~0.15, walk-forward gain +0.005 nats, far below spread and fee costs) and the
+market is ahead of it at every hour (15-21 UTC). Carlos chose to test same-day trading:
+`weatherbot/data/obs_history.py` (METAR history, LST day window, running max with a
+10-minute publication lag) and `weatherbot/backtest/sameday.py` (empirical model of
+final high minus max-so-far by hour, drop and NBM headroom; walk-forward; market vs
+model at 10/13/15/17/19 LST; dead-bracket check). Same rules: tuning months only.

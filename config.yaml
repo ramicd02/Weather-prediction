@@ -61,6 +61,34 @@ stations:
   KXHIGHTSFO: KSFO
   KXHIGHTTN: KTTN
 
+# Each station's UTC offset in local STANDARD time. The CLI day runs midnight to
+# midnight standard time all year (CLAUDE.md rule 6). Phoenix doesn't use daylight time.
+station_utc_offset:
+  KNYC: -5
+  KEWR: -5
+  KTTN: -5
+  KPHL: -5
+  KBOS: -5
+  KDCA: -5
+  KATL: -5
+  KMIA: -5
+  KSDF: -5
+  KMDW: -6
+  KMSP: -6
+  KAUS: -6
+  KDFW: -6
+  KHOU: -6
+  KSAT: -6
+  KMSY: -6
+  KOKC: -6
+  KDEN: -7
+  KPHX: -7
+  KLAS: -8
+  KLAX: -8
+  KSAN: -8
+  KSFO: -8
+  KSEA: -8
+
 # Optional: NWS CLI location code per station, when it isn't the ICAO id
 # without its leading K (e.g. KMDW -> MDW).
 cli_codes: {}

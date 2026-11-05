@@ -112,3 +112,55 @@ def test_backfill_falls_back_to_live_endpoint_on_404():
     assert stats["empty"] == 1
     row = s.query("SELECT status, source FROM kalshi_candle_fetch")[0]
     assert (row["status"], row["source"]) == ("empty", "live")
+
+
+HIST_CANDLE = {
+    "end_period_ts": 1762300800,
+    "yes_bid": {"open": "0.3000", "low": "0.2900", "high": "0.3200", "close": "0.3100"},
+    "yes_ask": {"open": "0.3500", "low": "0.3300", "high": "0.3600", "close": "0.3400"},
+    "price": {"open": None, "low": "0.3000", "high": "0.3500", "close": "0.3300", "mean": None},
+    "volume": "120.00",
+    "open_interest": "900.50",
+}
+
+
+def test_parse_historical_candle_format():
+    [c] = parse_candles({"candlesticks": [HIST_CANDLE]})
+    assert (c["yes_bid_e4"], c["yes_ask_e4"], c["price_e4"]) == (3100, 3400, 3300)
+    assert (c["volume_e2"], c["open_interest_e2"]) == (12000, 90050)
+
+
+def test_cents_integers_are_never_guessed():
+    weird = dict(HIST_CANDLE, yes_bid={"close": 31}, yes_ask={"close": 34})
+    [c] = parse_candles({"candlesticks": [weird]})
+    assert c["yes_bid_e4"] is None and c["yes_ask_e4"] is None
+
+
+def test_unreadable_candles_count_as_errors_and_can_be_redone():
+    from weatherbot.backtest.prices import mark_unreadable_for_refetch
+
+    unknown = {"end_period_ts": 1762300800, "bid": {"c": "0.31"}}
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        path = req.url.path.removeprefix("/trade-api/v2")
+        if path == "/historical/cutoff":
+            return httpx.Response(200, json={"market_settled_ts": "2026-01-01T00:00:00Z"})
+        return httpx.Response(200, json={"candlesticks": [unknown]})
+
+    s = Storage(":memory:")
+    s.upsert_settled_market(_market("KXHIGHCHI-25JAN01-B30.5"), "KXHIGHCHI", "2025-01-01", "h")
+    stats = asyncio.run(backfill(_client(handler), s))
+    assert stats["error"] == 1 and stats["ok"] == 0
+    note = s.query("SELECT note FROM kalshi_candle_fetch")[0]["note"]
+    assert "unreadable" in note and "bid" in note
+
+    # A market saved earlier as 'ok' with only empty candles gets queued again.
+    s2 = Storage(":memory:")
+    s2.upsert_candles("T1", [{"end_ts": 1, "yes_bid_e4": None}])
+    s2.record_candle_fetch("T1", "ok", "historical", 1)
+    s2.upsert_candles("T2", [{"end_ts": 1, "yes_bid_e4": 3000}])
+    s2.record_candle_fetch("T2", "ok", "historical", 1)
+    assert mark_unreadable_for_refetch(s2) == 1
+    rows = s2.query("SELECT ticker, status FROM kalshi_candle_fetch ORDER BY ticker")
+    assert [(r["ticker"], r["status"]) for r in rows] == [("T1", "error"), ("T2", "ok")]
+    assert s2.query("SELECT COUNT(*) n FROM kalshi_candles WHERE ticker='T1'")[0]["n"] == 0

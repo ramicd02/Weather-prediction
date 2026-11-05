@@ -55,7 +55,7 @@ It needs to run 24/7. Every hour it's off is order-book history you can't downlo
 ### Check it works
 
 ```powershell
-python -m pytest -q                       # should say "114 passed"
+python -m pytest -q                       # should say "118 passed"
 python -m weatherbot.data.logger          # starts logging; leave the window open
 ```
 

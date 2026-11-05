@@ -49,11 +49,14 @@ def to_unix(value: Any) -> int | None:
 
 
 def _e4(obj: Any, key: str) -> int | None:
+    """Dollar string at obj[key + '_dollars'] (live API) or obj[key] (historical API)."""
     if not isinstance(obj, dict):
         return None
-    v = obj.get(key)
+    v = obj.get(f"{key}_dollars")
     if v in (None, ""):
-        return None
+        v = obj.get(key)
+    if v in (None, "") or isinstance(v, int | float):
+        return None  # only dollar strings are accepted; never guess cents
     try:
         return dollars_to_e4(v)
     except ValueError:
@@ -69,6 +72,11 @@ def _e2(v: Any) -> int | None:
         return None
 
 
+def has_data(row: dict[str, Any]) -> bool:
+    keys = ("yes_bid_e4", "yes_ask_e4", "price_e4", "volume_e2", "open_interest_e2")
+    return any(row.get(k) is not None for k in keys)
+
+
 def parse_candles(payload: dict[str, Any]) -> list[dict[str, Any]]:
     out = []
     for c in payload.get("candlesticks") or []:
@@ -79,13 +87,14 @@ def parse_candles(payload: dict[str, Any]) -> list[dict[str, Any]]:
         out.append(
             {
                 "end_ts": ts,
-                "yes_bid_e4": _e4(c.get("yes_bid"), "close_dollars"),
-                "yes_ask_e4": _e4(c.get("yes_ask"), "close_dollars"),
-                "price_e4": _e4(price, "close_dollars"),
-                "price_low_e4": _e4(price, "low_dollars"),
-                "price_high_e4": _e4(price, "high_dollars"),
-                "volume_e2": _e2(c.get("volume_fp")),
-                "open_interest_e2": _e2(c.get("open_interest_fp")),
+                "yes_bid_e4": _e4(c.get("yes_bid"), "close"),
+                "yes_ask_e4": _e4(c.get("yes_ask"), "close"),
+                "price_e4": _e4(price, "close"),
+                "price_low_e4": _e4(price, "low"),
+                "price_high_e4": _e4(price, "high"),
+                # Live API: volume_fp / open_interest_fp. Historical API: volume / open_interest.
+                "volume_e2": _e2(c.get("volume_fp", c.get("volume"))),
+                "open_interest_e2": _e2(c.get("open_interest_fp", c.get("open_interest"))),
             }
         )
     return out
@@ -136,12 +145,41 @@ async def fetch_market(
             last_err = f"{source}: {exc!r}"
             break
         rows = parse_candles(payload)
+        if rows and not any(has_data(r) for r in rows):
+            # Candles came back but no field was readable: a format we don't know.
+            # Count it as an error, never as success, so it can't hide.
+            keys = sorted((payload.get("candlesticks") or [{}])[0])
+            storage.record_candle_fetch(
+                ticker, "error", source, 0, f"{source}: unreadable candle fields {keys}"
+            )
+            return "error"
         storage.upsert_candles(ticker, rows)
         status = "ok" if rows else "empty"
         storage.record_candle_fetch(ticker, status, source, len(rows))
         return status
     storage.record_candle_fetch(ticker, "error", None, 0, last_err)
     return "error"
+
+
+def mark_unreadable_for_refetch(storage: Storage) -> int:
+    """Markets saved as 'ok' whose candles have no readable field at all -> refetch."""
+    bad = storage.query(
+        """SELECT f.ticker FROM kalshi_candle_fetch f
+           WHERE f.status = 'ok' AND NOT EXISTS (
+             SELECT 1 FROM kalshi_candles c WHERE c.ticker = f.ticker AND (
+               c.yes_bid_e4 IS NOT NULL OR c.yes_ask_e4 IS NOT NULL OR c.price_e4 IS NOT NULL
+               OR c.volume_e2 IS NOT NULL OR c.open_interest_e2 IS NOT NULL))"""
+    )
+    storage.conn.execute("BEGIN")  # one transaction: tens of thousands of rows
+    try:
+        for r in bad:
+            storage.conn.execute("DELETE FROM kalshi_candles WHERE ticker = ?", (r["ticker"],))
+            storage.record_candle_fetch(r["ticker"], "error", None, 0, "redo: unreadable prices")
+        storage.conn.execute("COMMIT")
+    except Exception:
+        storage.conn.execute("ROLLBACK")
+        raise
+    return len(bad)
 
 
 async def backfill(
@@ -198,6 +236,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--env-file", default=".env")
     parser.add_argument("--series", help="one series only, e.g. KXHIGHCHI")
     parser.add_argument("--limit", type=int, help="fetch at most this many markets (testing)")
+    parser.add_argument(
+        "--redo-unreadable",
+        action="store_true",
+        help="refetch markets whose saved candles have no readable prices",
+    )
     args = parser.parse_args(argv)
 
     setup_logging("INFO")
@@ -213,6 +256,9 @@ def main(argv: list[str] | None = None) -> int:
         print("No settled markets saved. Run `python -m weatherbot.data.settlement_check` first.")
         storage.close()
         return 1
+    if args.redo_unreadable:
+        n = mark_unreadable_for_refetch(storage)
+        print(f"Marked {n} markets with unreadable saved prices for refetch.")
     env = load_env()
     signer = Signer(env.api_key_id, load_private_key(env.private_key_path))
     reads = float(cfg.get("logger", {}).get("kalshi_reads_per_s", 8))
